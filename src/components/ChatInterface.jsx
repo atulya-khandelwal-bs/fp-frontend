@@ -276,7 +276,9 @@ export default function ChatInterface({
         const messageTime =
           timestamp instanceof Date ? timestamp : new Date(timestamp);
         // Create a unique timestamp to ensure consecutive duplicate messages have different IDs
-        const uniqueTimestamp = Date.now() + logIndex;
+        // Use logHash + logIndex for stable IDs that don't change across re-renders
+        // This ensures the same log entry always gets the same ID
+        const uniqueTimestamp = logHash + logIndex;
 
         if (isOutgoing) {
           // Parse "You → peerId: message"
@@ -561,7 +563,10 @@ export default function ChatInterface({
 
       // Merge: keep existing messages for this peer + add new unique ones
       // Sort by logIndex to maintain chronological order
-      const allMessages = [currentPeerMessages, ...uniqueNewMessages];
+      const allMessages = [...currentPeerMessages, ...uniqueNewMessages];
+      console.log("allMessages", allMessages);
+      console.log("currentPeerMessages", currentPeerMessages);
+      console.log("uniqueNewMessages", uniqueNewMessages);
       // Extract logIndex from message ID for sorting (it's the third part after splitting by '-')
       // allMessages.sort((a, b) => {
       //   const aIndex = parseInt(a.id.split("-")[3]) || 0;
