@@ -2592,12 +2592,12 @@ export default function ChatInterface({
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.2a2 2 0 0 1-2.83-2.83l8.49-8.49" />
               </svg>
             </button>
-            <div
+            {/* <div
               style={{
                 position: "relative",
               }}
-            >
-              <button
+            > */}
+            {/* <button
                 className="icon-btn demo-btn"
                 disabled={!selectedContact}
                 onClick={() => setShowDemoMenu(!showDemoMenu)}
@@ -2617,8 +2617,8 @@ export default function ChatInterface({
                   <path d="M2 17l10 5 10-5" />
                   <path d="M2 12l10 5 10-5" />
                 </svg>
-              </button>
-              {showDemoMenu && (
+              </button> */}
+            {/* {showDemoMenu && (
                 <div
                   ref={demoMenuRef}
                   className="demo-menu"
@@ -2804,8 +2804,8 @@ export default function ChatInterface({
                     🛍️ Products
                   </button>
                 </div>
-              )}
-            </div>
+              )} */}
+            {/* </div> */}
             <button
               title="Attach emoji"
               ref={buttonRef}
@@ -2859,22 +2859,6 @@ export default function ChatInterface({
                   <circle cx="8.5" cy="8.5" r="1.5" />
                   <polyline points="21 15 16 10 5 21" />
                 </svg>
-                <div className="media-icon-overlay">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                    <path d="M2 17l10 5 10-5" />
-                    <path d="M2 12l10 5 10-5" />
-                  </svg>
-                </div>
               </div>
               <span className="media-label">Photos</span>
             </button>

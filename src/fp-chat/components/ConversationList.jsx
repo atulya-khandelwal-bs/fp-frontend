@@ -186,13 +186,13 @@ export default function ConversationList({
           )}
         </div>
         <div className="header-actions">
-          <button
+          {/* <button
             className="header-icon-btn"
             onClick={() => setShowAddForm(!showAddForm)}
             title="Add conversation"
           >
             <SquarePen />
-          </button>
+          </button> */}
           <div className="search-button-wrapper">
             <button
               className={`header-icon-btn ${showSearchInput ? "active" : ""}`}
@@ -211,7 +211,10 @@ export default function ConversationList({
             <button
               ref={filterButtonRef}
               className="header-icon-btn"
-              onClick={() => setShowFilterModal(!showFilterModal)}
+              onClick={() => {
+                setShowFilterModal(!showFilterModal);
+                setShowSearchInput(false);
+              }}
               title="Filter conversations"
             >
               <SlidersHorizontal />
@@ -262,7 +265,10 @@ export default function ConversationList({
             <button
               ref={sortButtonRef}
               className="header-icon-btn"
-              onClick={() => setShowSortModal(!showSortModal)}
+              onClick={() => {
+                setShowSortModal(!showSortModal);
+                setShowSearchInput(false);
+              }}
               title="Sort conversations"
             >
               <ArrowUpDown />
@@ -386,16 +392,18 @@ export default function ConversationList({
               }`}
               onClick={() => onSelectConversation(conv)}
             >
-              <div className="conversation-avatar">
-                <img
-                  src={conv.avatar || config.defaults.avatar}
-                  alt={conv.name}
-                />
-              </div>
-              <div className="conversation-content">
-                <div className="conversation-name">{conv.name}</div>
-                <div className="conversation-preview">
-                  {conv.lastMessage || "No messages yet"}
+              <div className="conversation-left">
+                <div className="conversation-avatar">
+                  <img
+                    src={conv.avatar || config.defaults.avatar}
+                    alt={conv.name}
+                  />
+                </div>
+                <div className="conversation-content">
+                  <div className="conversation-name">{conv.name}</div>
+                  <div className="conversation-preview">
+                    {conv.lastMessage || "No messages yet"}
+                  </div>
                 </div>
               </div>
               <div className="conversation-meta">

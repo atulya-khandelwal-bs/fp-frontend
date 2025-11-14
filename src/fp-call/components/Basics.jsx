@@ -25,6 +25,7 @@ import {
   Signal,
   ChevronUp,
   Volume2,
+  VolumeX,
   MoreVertical,
   Ellipsis,
 } from "lucide-react";
@@ -1073,7 +1074,7 @@ export const Basics = ({
               title={speakerOn ? "Mute speaker" : "Unmute speaker"}
             >
               <div className="control-icon">
-                <Volume2 size={18} />
+                {speakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}
               </div>
             </button>
 

@@ -199,7 +199,7 @@ input {
   background: #007bff;
   color: #fff;
   border: none;
-  padding: 0.5rem 1rem;
+  padding: 0.1rem 1rem;
   border-radius: 4px;
   cursor: pointer;
 }
@@ -549,7 +549,6 @@ input {
   align-items: center;
   gap: 0.5rem;
   background: white;
-  border-radius: 8px;
   padding: 0.25rem;
   border: 1px solid #e5e7eb;
 }
@@ -985,7 +984,7 @@ input {
 
 .conversation-item {
   display: flex;
-  align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
   padding: 1rem;
   border-bottom: 1px solid var(--border);
@@ -1000,6 +999,12 @@ input {
 
 .conversation-item.selected {
   background: var(--light-pink);
+}
+
+.conversation-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .conversation-avatar {
@@ -1039,6 +1044,7 @@ input {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 
 .conversation-meta {
@@ -1197,6 +1203,7 @@ input {
   font-size: 0.875rem;
   color: var(--text);
   cursor: pointer;
+  text-align: left;
   transition: background-color 0.15s ease;
   white-space: nowrap;
 }
@@ -1722,7 +1729,7 @@ input {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 0.5rem;
+  /* gap: 0.5rem; */
   padding-right: 10px;
   padding-top: 10px;
 }
