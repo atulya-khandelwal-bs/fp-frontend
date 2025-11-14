@@ -3,23 +3,27 @@
  *
  * For production, use environment variables to override these values.
  * Create a .env file in the root directory with:
- * VITE_AGORA_APP_KEY=your_app_key
- * VITE_CHAT_TOKEN_API_URL=your_chat_token_api_url
- * VITE_BACKEND_API_URL=your_backend_api_url
+ *
+ * Required:
+ * - VITE_AGORA_APP_KEY=your_chat_app_key (for Agora Chat SDK)
+ * - VITE_RTC_APP_ID=your_rtc_app_id (for Agora RTC SDK - separate from Chat App Key)
+ * - VITE_BACKEND_API_URL=your_backend_api_url (base URL only, no routes)
  */
 
 const config = {
   // Agora Chat Configuration
   agora: {
-    appKey: import.meta.env.VITE_AGORA_APP_KEY || "611360328#1609888",
+    // Chat App Key (for Agora Chat SDK)
+    appKey: import.meta.env.VITE_AGORA_APP_KEY,
+
+    // RTC App ID (for Agora RTC SDK - separate from Chat App Key)
+    rtcAppId: import.meta.env.VITE_RTC_APP_ID,
   },
 
   // API Endpoints
   api: {
     // Backend API base URL
-    backend:
-      import.meta.env.VITE_BACKEND_API_URL ||
-      "https://fitpass-backend-1073769052082.asia-south2.run.app",
+    backend: import.meta.env.VITE_BACKEND_API_URL,
 
     // Specific API endpoints (constructed from base URL)
     get generateToken() {
@@ -56,6 +60,13 @@ const config = {
   // Chat Configuration
   chat: {
     pageSize: 20, // Number of messages to fetch per page
+  },
+
+  // RTC Token API (constructed from backend base URL)
+  rtcToken: {
+    get apiUrl() {
+      return `${config.api.backend}/api/rtc/generate-token`;
+    },
   },
 };
 

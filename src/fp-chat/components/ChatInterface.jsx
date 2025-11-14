@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
-import { Smile } from "lucide-react";
+import { Smile, Video } from "lucide-react";
 import "emoji-picker-element"; // Import once to register the <emoji-picker> tag
-import config from "../config.js";
+import config from "../../common/config.js";
+import ChatHeader from "./ChatHeader";
+import ChatTab from "./ChatTab";
+import InfoTab from "./InfoTab";
+import DescriptionTab from "./DescriptionTab";
 
 export default function ChatInterface({
   userId,
@@ -16,11 +20,14 @@ export default function ChatInterface({
   selectedContact,
   chatClient,
   onBackToConversations,
+  onInitiateCall,
+  onUpdateLastMessageFromHistory,
 }) {
   const [activeTab, setActiveTab] = useState("Chat");
   const [messages, setMessages] = useState([]);
   const [showMediaPopup, setShowMediaPopup] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showDemoMenu, setShowDemoMenu] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState(null);
   const [showCameraCapture, setShowCameraCapture] = useState(false);
   const [cursor, setCursor] = useState(null);
@@ -33,6 +40,7 @@ export default function ChatInterface({
   const [imageViewerAlt, setImageViewerAlt] = useState("");
   const chatAreaRef = useRef(null);
   const mediaPopupRef = useRef(null);
+  const demoMenuRef = useRef(null);
   const fileInputRef = useRef(null);
   const photoInputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -298,6 +306,10 @@ export default function ChatInterface({
           let fileUrl = null;
           let fileMime = null;
           let fileSizeBytes = null;
+          let products = null;
+          let callType = null;
+          let callDurationSeconds = null;
+          let callChannel = null;
           let system = null;
 
           if (content.startsWith("IMAGE_DATA:")) {
@@ -356,6 +368,20 @@ export default function ChatInterface({
                     }
                     messageContent = `📎 ${fileName}`;
                     break;
+                  case "products":
+                    messageType = "products";
+                    products = Array.isArray(obj.products) ? obj.products : [];
+                    messageContent = "Products";
+                    break;
+                  case "call":
+                    messageType = "call";
+                    callType = obj.callType || "voice";
+                    callDurationSeconds = obj.duration ?? null;
+                    callChannel = obj.channel || null;
+                    messageContent = `${
+                      callType === "video" ? "Video" : "Voice"
+                    } call`;
+                    break;
                   default: {
                     const parsed = parseSystemPayload(content);
                     if (parsed) {
@@ -387,6 +413,10 @@ export default function ChatInterface({
             fileUrl,
             fileMime,
             fileSizeBytes,
+            products,
+            callType,
+            callDurationSeconds,
+            channel: callChannel,
             createdAt: messageTime,
             timestamp: messageTime.toLocaleTimeString([], {
               hour: "2-digit",
@@ -418,6 +448,7 @@ export default function ChatInterface({
           let products = null;
           let callType = null;
           let callDurationSeconds = null;
+          let callChannel = null;
           let system = null;
 
           if (content.startsWith("IMAGE_DATA:")) {
@@ -484,6 +515,7 @@ export default function ChatInterface({
                     messageType = "call";
                     callType = obj.callType || "voice";
                     callDurationSeconds = obj.duration ?? null;
+                    callChannel = obj.channel || null;
                     messageContent = `${
                       callType === "video" ? "Video" : "Voice"
                     } call`;
@@ -522,6 +554,7 @@ export default function ChatInterface({
             products,
             callType,
             callDurationSeconds,
+            channel: callChannel,
             createdAt: messageTime,
             timestamp: messageTime.toLocaleTimeString([], {
               hour: "2-digit",
@@ -545,11 +578,109 @@ export default function ChatInterface({
       // Create a set of existing message IDs to prevent duplicates
       const existingIds = new Set(currentPeerMessages.map((msg) => msg.id));
 
-      // Only add messages that don't already exist (based on their unique ID)
-      // This ensures even consecutive duplicate messages are shown
-      const uniqueNewMessages = newMessages.filter(
-        (msg) => !existingIds.has(msg.id)
-      );
+      // Helper function to create matching key (same as in server fetch)
+      const normalizeContent = (content) => {
+        if (!content) return "";
+        try {
+          const parsed = JSON.parse(content);
+          return JSON.stringify(parsed);
+        } catch {
+          return String(content).trim();
+        }
+      };
+
+      const createMatchKey = (msg) => {
+        const normalizedContent = normalizeContent(msg.content);
+        const timeWindow = Math.floor(
+          new Date(msg.createdAt).getTime() / 300000
+        ); // 5-minute window
+
+        // For custom messages, include messageType and identifying fields in the key
+        if (msg.messageType && msg.messageType !== "text") {
+          let customKey = "";
+
+          // Try to extract from message fields first
+          if (msg.messageType === "image" && msg.imageUrl) {
+            customKey = msg.imageUrl;
+          } else if (msg.messageType === "audio" && msg.audioUrl) {
+            customKey = msg.audioUrl;
+          } else if (msg.messageType === "file" && msg.fileUrl) {
+            customKey = msg.fileUrl;
+          } else if (msg.messageType === "call") {
+            // For call messages, use callType and channel if available
+            customKey = `${msg.callType || "video"}-${msg.channel || ""}`;
+          } else if (msg.messageType === "products" && msg.products) {
+            // For products, use the first product ID
+            customKey = msg.products[0]?.id || "";
+          }
+
+          // If customKey is still empty, try to extract from content JSON
+          if (!customKey && typeof msg.content === "string") {
+            try {
+              const contentObj = JSON.parse(msg.content);
+              if (contentObj && typeof contentObj === "object") {
+                if (msg.messageType === "image" && contentObj.url) {
+                  customKey = contentObj.url;
+                } else if (msg.messageType === "audio" && contentObj.url) {
+                  customKey = contentObj.url;
+                } else if (msg.messageType === "file" && contentObj.url) {
+                  customKey = contentObj.url;
+                } else if (msg.messageType === "call") {
+                  customKey = `${contentObj.callType || "video"}-${
+                    contentObj.channel || ""
+                  }`;
+                } else if (
+                  msg.messageType === "products" &&
+                  contentObj.products
+                ) {
+                  customKey = contentObj.products[0]?.id || "";
+                }
+              }
+            } catch {
+              // Not JSON, ignore
+            }
+          }
+
+          if (customKey) {
+            return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
+          }
+        }
+
+        // Fallback to content-based matching for text and other messages
+        return `${normalizedContent}-${msg.sender}-${timeWindow}`;
+      };
+
+      // Create a map of existing messages by their match key
+      const existingMessagesByKey = new Map();
+      currentPeerMessages.forEach((msg) => {
+        const key = createMatchKey(msg);
+        if (!existingMessagesByKey.has(key)) {
+          existingMessagesByKey.set(key, msg);
+        }
+      });
+
+      // Filter out messages that match existing messages by content/key (not just ID)
+      // This prevents duplicates when server messages already exist
+      const uniqueNewMessages = newMessages.filter((msg) => {
+        // First check by ID (for exact duplicates)
+        if (existingIds.has(msg.id)) {
+          return false;
+        }
+        // Then check by content/key (to match with server messages that have different IDs)
+        const key = createMatchKey(msg);
+        const existingMsg = existingMessagesByKey.get(key);
+        if (existingMsg) {
+          // If a server message exists (not from logs), don't add the log message
+          // Server messages have IDs that don't start with "outgoing-" or "incoming-"
+          if (
+            !existingMsg.id.startsWith("outgoing-") &&
+            !existingMsg.id.startsWith("incoming-")
+          ) {
+            return false;
+          }
+        }
+        return true;
+      });
 
       // If no new unique messages, return existing state
       if (uniqueNewMessages.length === 0) {
@@ -563,19 +694,39 @@ export default function ChatInterface({
 
       // Merge: keep existing messages for this peer + add new unique ones
       // Sort by logIndex to maintain chronological order
-      const allMessages = [...currentPeerMessages, ...uniqueNewMessages];
-      console.log("allMessages", allMessages);
-      console.log("currentPeerMessages", currentPeerMessages);
-      console.log("uniqueNewMessages", uniqueNewMessages);
-      // Extract logIndex from message ID for sorting (it's the third part after splitting by '-')
-      // allMessages.sort((a, b) => {
-      //   const aIndex = parseInt(a.id.split("-")[3]) || 0;
-      //   const bIndex = parseInt(b.id.split("-")[3]) || 0;
-      //   return aIndex - bIndex;
-      // });
+      const allMessages = [...currentPeerMessages, ...uniqueNewMessages]
+        .filter((msg, index, self) => {
+          // Remove duplicates by ID (first check)
+          const idIndex = self.findIndex((m) => m.id === msg.id);
+          if (idIndex !== index) {
+            return false;
+          }
+          // Also check by match key to catch any remaining duplicates
+          const key = createMatchKey(msg);
+          const keyIndex = self.findIndex((m) => createMatchKey(m) === key);
+          // Keep the first occurrence (prefer server messages over log messages)
+          if (keyIndex !== index) {
+            const existingMsg = self[keyIndex];
+            // If existing is a server message and current is a log message, skip current
+            if (
+              !existingMsg.id.startsWith("outgoing-") &&
+              !existingMsg.id.startsWith("incoming-") &&
+              (msg.id.startsWith("outgoing-") || msg.id.startsWith("incoming-"))
+            ) {
+              return false;
+            }
+            // If both are same type, keep the first one
+            if (keyIndex < index) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
-      // console.log("allMessages", allMessages);
-      return allMessages;
+      // Return merged messages along with messages from other peers
+      const otherPeerMessages = prev.filter((msg) => msg.peerId !== peerId);
+      return [...otherPeerMessages, ...allMessages];
     });
   }, [logs, peerId, selectedContact]);
 
@@ -762,6 +913,98 @@ export default function ChatInterface({
     }
   };
 
+  // Demo message samples for testing
+  const sendDemoMessage = (type) => {
+    if (!peerId) return;
+
+    let demoPayload = {};
+
+    switch (type) {
+      case "image":
+        demoPayload = {
+          type: "image",
+          url: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=800&h=600&fit=crop",
+          fileName: "demo-image.jpg",
+          width: 800,
+          height: 600,
+        };
+        break;
+
+      case "audio":
+        demoPayload = {
+          type: "audio",
+          url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+          duration: 30, // seconds
+          transcription: "This is a demo audio transcription",
+        };
+        break;
+
+      case "file":
+        demoPayload = {
+          type: "file",
+          url: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+          fileName: "demo-document.pdf",
+          mimeType: "application/pdf",
+          size: 102400, // bytes
+        };
+        break;
+
+      case "call":
+        demoPayload = {
+          type: "call",
+          callType: "video",
+          channel: `demo-call-${Date.now()}`,
+          from: userId,
+          to: peerId,
+          action: "initiate",
+        };
+        break;
+
+      case "meal_plan_updated":
+        demoPayload = {
+          type: "meal_plan_updated",
+        };
+        break;
+
+      case "new_nutritionist":
+        demoPayload = {
+          type: "new_nutritionist",
+          id: "NUT001",
+          name: "Dr. Jane Smith",
+          title: "Senior Nutritionist",
+          profilePhoto:
+            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face",
+        };
+        break;
+
+      case "products":
+        demoPayload = {
+          type: "products",
+          products: [
+            {
+              id: "PROD001",
+              name: "Hello Healthy Coffee (South Indian)",
+              price: 579,
+              originalPrice: 999,
+              image:
+                "https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=400&h=400&fit=crop",
+            },
+          ],
+        };
+        break;
+
+      default:
+        return;
+    }
+
+    setShowDemoMenu(false);
+    setMessage(JSON.stringify(demoPayload));
+    // Auto-send after a small delay
+    setTimeout(() => {
+      onSend(JSON.stringify(demoPayload));
+    }, 100);
+  };
+
   // Close media popup when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -772,15 +1015,22 @@ export default function ChatInterface({
       ) {
         setShowMediaPopup(false);
       }
+      if (
+        demoMenuRef.current &&
+        !demoMenuRef.current.contains(event.target) &&
+        !event.target.closest(".demo-btn")
+      ) {
+        setShowDemoMenu(false);
+      }
     };
 
-    if (showMediaPopup) {
+    if (showMediaPopup || showDemoMenu) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => {
         document.removeEventListener("mousedown", handleClickOutside);
       };
     }
-  }, [showMediaPopup]);
+  }, [showMediaPopup, showDemoMenu]);
 
   // 👉 Close picker when clicking outside
   useEffect(() => {
@@ -1225,16 +1475,28 @@ export default function ChatInterface({
       };
 
       shouldSendRecordingRef.current = true;
+
+      // Clear any existing timer before starting a new one
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingDuration(0);
       recordingStartTimeRef.current = Date.now(); // Record start time
       recordingDurationRef.current = 0; // Reset ref
 
-      // Start timer
+      // Start timer - calculate duration from start time to avoid double increments
       recordingTimerRef.current = setInterval(() => {
-        recordingDurationRef.current += 1;
-        setRecordingDuration((prev) => prev + 1);
+        if (recordingStartTimeRef.current) {
+          const elapsed = Math.floor(
+            (Date.now() - recordingStartTimeRef.current) / 1000
+          );
+          recordingDurationRef.current = elapsed;
+          setRecordingDuration(elapsed);
+        }
       }, 1000);
     } catch (error) {
       console.error("Error starting audio recording:", error);
@@ -1473,6 +1735,44 @@ export default function ChatInterface({
             fileMime: customData.mimeType,
             fileSizeBytes: customData.size,
           };
+        } else if (type === "call") {
+          return {
+            ...baseMessage,
+            content,
+            messageType: "call",
+            callType: customData.callType || "video",
+            channel: customData.channel,
+            callAction: customData.action,
+          };
+        } else if (type === "products") {
+          return {
+            ...baseMessage,
+            content,
+            messageType: "products",
+            products: Array.isArray(customData.products)
+              ? customData.products
+              : [],
+          };
+        } else if (type === "meal_plan_updated") {
+          return {
+            ...baseMessage,
+            content,
+            messageType: "system",
+            system: { kind: "meal_plan_updated" },
+          };
+        } else if (type === "new_nutritionist" || type === "new_nutrionist") {
+          return {
+            ...baseMessage,
+            content,
+            messageType: "system",
+            system: {
+              kind: "new_nutritionist",
+              id: customData.id || "",
+              name: customData.name || "",
+              title: customData.title || "",
+              profilePhoto: customData.profilePhoto || "",
+            },
+          };
         }
       }
 
@@ -1484,10 +1784,49 @@ export default function ChatInterface({
       };
     }
 
-    // Handle text messages
+    // Handle text messages - check if it's JSON with a type field
+    const textContent = msg.msg || msg.msgContent || msg.data || "";
+    try {
+      const parsed = JSON.parse(textContent);
+      if (parsed && typeof parsed === "object" && parsed.type) {
+        const type = String(parsed.type).toLowerCase();
+        if (type === "products") {
+          return {
+            ...baseMessage,
+            content: textContent,
+            messageType: "products",
+            products: Array.isArray(parsed.products) ? parsed.products : [],
+          };
+        } else if (type === "meal_plan_updated") {
+          return {
+            ...baseMessage,
+            content: textContent,
+            messageType: "system",
+            system: { kind: "meal_plan_updated" },
+          };
+        } else if (type === "new_nutritionist" || type === "new_nutrionist") {
+          return {
+            ...baseMessage,
+            content: textContent,
+            messageType: "system",
+            system: {
+              kind: "new_nutritionist",
+              id: parsed.id || "",
+              name: parsed.name || "",
+              title: parsed.title || "",
+              profilePhoto: parsed.profilePhoto || "",
+            },
+          };
+        }
+      }
+    } catch {
+      // Not JSON, treat as regular text
+    }
+
+    // Regular text message
     return {
       ...baseMessage,
-      content: msg.msg || msg.msgContent || msg.data || "",
+      content: textContent,
       messageType: "text",
     };
   };
@@ -1522,6 +1861,19 @@ export default function ChatInterface({
 
       const formatted = oldMessages.map((msg) => formatMessage(msg));
 
+      // Find the most recent message from history to update last message
+      if (formatted.length > 0 && onUpdateLastMessageFromHistory) {
+        // Sort by timestamp descending to get the most recent
+        const sortedFormatted = [...formatted].sort(
+          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+        );
+        const mostRecentMessage = sortedFormatted[0];
+        if (mostRecentMessage) {
+          // Update the conversation's last message
+          onUpdateLastMessageFromHistory(peerId, mostRecentMessage);
+        }
+      }
+
       // Merge with existing messages instead of replacing
       setMessages((prev) => {
         // Get existing messages for this peer
@@ -1555,17 +1907,78 @@ export default function ChatInterface({
           }
         };
 
-        const serverMessagesByContent = new Map();
-        newFetchedMessages.forEach((msg) => {
+        // Create a matching key for custom messages using messageType and identifying fields
+        const createMatchKey = (msg) => {
           const normalizedContent = normalizeContent(msg.content);
           const timeWindow = Math.floor(
             new Date(msg.createdAt).getTime() / 300000
           ); // 5-minute window
-          const key = `${normalizedContent}-${msg.sender}-${timeWindow}`;
-          if (!serverMessagesByContent.has(key)) {
-            serverMessagesByContent.set(key, msg);
+
+          // For custom messages, include messageType and identifying fields in the key
+          if (msg.messageType && msg.messageType !== "text") {
+            let customKey = "";
+
+            // Try to extract from message fields first
+            if (msg.messageType === "image" && msg.imageUrl) {
+              customKey = msg.imageUrl;
+            } else if (msg.messageType === "audio" && msg.audioUrl) {
+              customKey = msg.audioUrl;
+            } else if (msg.messageType === "file" && msg.fileUrl) {
+              customKey = msg.fileUrl;
+            } else if (msg.messageType === "call") {
+              // For call messages, use callType and channel if available
+              customKey = `${msg.callType || "video"}-${msg.channel || ""}`;
+            } else if (msg.messageType === "products" && msg.products) {
+              // For products, use the first product ID
+              customKey = msg.products[0]?.id || "";
+            }
+
+            // If customKey is still empty, try to extract from content JSON
+            if (!customKey && typeof msg.content === "string") {
+              try {
+                const contentObj = JSON.parse(msg.content);
+                if (contentObj && typeof contentObj === "object") {
+                  if (msg.messageType === "image" && contentObj.url) {
+                    customKey = contentObj.url;
+                  } else if (msg.messageType === "audio" && contentObj.url) {
+                    customKey = contentObj.url;
+                  } else if (msg.messageType === "file" && contentObj.url) {
+                    customKey = contentObj.url;
+                  } else if (msg.messageType === "call") {
+                    customKey = `${contentObj.callType || "video"}-${
+                      contentObj.channel || ""
+                    }`;
+                  } else if (
+                    msg.messageType === "products" &&
+                    contentObj.products
+                  ) {
+                    customKey = contentObj.products[0]?.id || "";
+                  }
+                }
+              } catch {
+                // Not JSON, ignore
+              }
+            }
+
+            if (customKey) {
+              return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
+            }
+          }
+
+          // Fallback to content-based matching for text and other messages
+          return `${normalizedContent}-${msg.sender}-${timeWindow}`;
+        };
+
+        const serverMessagesByKey = new Map();
+        newFetchedMessages.forEach((msg) => {
+          const key = createMatchKey(msg);
+          if (!serverMessagesByKey.has(key)) {
+            serverMessagesByKey.set(key, msg);
           }
         });
+
+        // Track which server messages have been matched
+        const matchedServerMessageIds = new Set();
 
         // Replace log messages with server messages if they match
         const updatedExistingMessages = existingMessages.map((logMsg) => {
@@ -1574,19 +1987,18 @@ export default function ChatInterface({
             logMsg.id.startsWith("outgoing-") ||
             logMsg.id.startsWith("incoming-")
           ) {
-            const normalizedContent = normalizeContent(logMsg.content);
-            const timeWindow = Math.floor(
-              new Date(logMsg.createdAt).getTime() / 300000
-            ); // 5-minute window
-            const key = `${normalizedContent}-${logMsg.sender}-${timeWindow}`;
-            const serverMsg = serverMessagesByContent.get(key);
+            const key = createMatchKey(logMsg);
+            const serverMsg = serverMessagesByKey.get(key);
             if (serverMsg) {
+              // Mark this server message as matched
+              matchedServerMessageIds.add(serverMsg.id);
               // Use server message (has correct timestamp) instead of log message
               console.log("Replacing log message with server message:", {
                 logId: logMsg.id,
                 serverId: serverMsg.id,
                 logTime: logMsg.createdAt,
                 serverTime: serverMsg.createdAt,
+                messageType: logMsg.messageType,
               });
               return serverMsg;
             }
@@ -1594,14 +2006,45 @@ export default function ChatInterface({
           return logMsg;
         });
 
-        // Merge: keep updated existing messages + add new fetched ones
+        // Remove matched server messages from newFetchedMessages to prevent duplicates
+        const unmatchedFetchedMessages = newFetchedMessages.filter(
+          (msg) => !matchedServerMessageIds.has(msg.id)
+        );
+
+        // Merge: keep updated existing messages + add only unmatched fetched ones
         // Combine and sort by timestamp to maintain chronological order
-        const allMessages = [...updatedExistingMessages, ...newFetchedMessages]
-          .filter(
-            (msg, index, self) =>
-              // Remove duplicates by ID
-              index === self.findIndex((m) => m.id === msg.id)
-          )
+        const allMessages = [
+          ...updatedExistingMessages,
+          ...unmatchedFetchedMessages,
+        ]
+          .filter((msg, index, self) => {
+            // Remove duplicates by ID (first check)
+            const idIndex = self.findIndex((m) => m.id === msg.id);
+            if (idIndex !== index) {
+              return false;
+            }
+            // Also check by match key to catch any remaining duplicates
+            const key = createMatchKey(msg);
+            const keyIndex = self.findIndex((m) => createMatchKey(m) === key);
+            // Keep the first occurrence (prefer server messages over log messages)
+            if (keyIndex !== index) {
+              const existingMsg = self[keyIndex];
+              // If existing is a server message and current is a log message, skip current
+              if (
+                !existingMsg.id.startsWith("outgoing-") &&
+                !existingMsg.id.startsWith("incoming-") &&
+                (msg.id.startsWith("outgoing-") ||
+                  msg.id.startsWith("incoming-"))
+              ) {
+                return false;
+              }
+              // If both are same type, keep the first one
+              if (keyIndex < index) {
+                return false;
+              }
+            }
+            return true;
+          })
           .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
         // Return merged messages along with messages from other peers
@@ -1652,9 +2095,92 @@ export default function ChatInterface({
       setMessages((prev) => {
         const existing = prev.filter((msg) => msg.peerId === peerId);
         const existingIds = new Set(existing.map((m) => m.id));
-        const unique = formatted
-          .reverse()
-          .filter((m) => !existingIds.has(m.id));
+
+        // Use the same matching logic as initial fetch
+        const normalizeContent = (content) => {
+          if (!content) return "";
+          try {
+            const parsed = JSON.parse(content);
+            return JSON.stringify(parsed);
+          } catch {
+            return String(content).trim();
+          }
+        };
+
+        const createMatchKey = (msg) => {
+          const normalizedContent = normalizeContent(msg.content);
+          const timeWindow = Math.floor(
+            new Date(msg.createdAt).getTime() / 300000
+          );
+
+          if (msg.messageType && msg.messageType !== "text") {
+            let customKey = "";
+
+            // Try to extract from message fields first
+            if (msg.messageType === "image" && msg.imageUrl) {
+              customKey = msg.imageUrl;
+            } else if (msg.messageType === "audio" && msg.audioUrl) {
+              customKey = msg.audioUrl;
+            } else if (msg.messageType === "file" && msg.fileUrl) {
+              customKey = msg.fileUrl;
+            } else if (msg.messageType === "call") {
+              customKey = `${msg.callType || "video"}-${msg.channel || ""}`;
+            } else if (msg.messageType === "products" && msg.products) {
+              customKey = msg.products[0]?.id || "";
+            }
+
+            // If customKey is still empty, try to extract from content JSON
+            if (!customKey && typeof msg.content === "string") {
+              try {
+                const contentObj = JSON.parse(msg.content);
+                if (contentObj && typeof contentObj === "object") {
+                  if (msg.messageType === "image" && contentObj.url) {
+                    customKey = contentObj.url;
+                  } else if (msg.messageType === "audio" && contentObj.url) {
+                    customKey = contentObj.url;
+                  } else if (msg.messageType === "file" && contentObj.url) {
+                    customKey = contentObj.url;
+                  } else if (msg.messageType === "call") {
+                    customKey = `${contentObj.callType || "video"}-${
+                      contentObj.channel || ""
+                    }`;
+                  } else if (
+                    msg.messageType === "products" &&
+                    contentObj.products
+                  ) {
+                    customKey = contentObj.products[0]?.id || "";
+                  }
+                }
+              } catch {
+                // Not JSON, ignore
+              }
+            }
+
+            if (customKey) {
+              return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
+            }
+          }
+
+          return `${normalizedContent}-${msg.sender}-${timeWindow}`;
+        };
+
+        const existingMessagesByKey = new Map();
+        existing.forEach((msg) => {
+          const key = createMatchKey(msg);
+          if (!existingMessagesByKey.has(key)) {
+            existingMessagesByKey.set(key, msg);
+          }
+        });
+
+        // Filter by both ID and content/key matching
+        const unique = formatted.reverse().filter((m) => {
+          if (existingIds.has(m.id)) {
+            return false;
+          }
+          const key = createMatchKey(m);
+          return !existingMessagesByKey.has(key);
+        });
+
         return [...unique, ...prev];
       });
 
@@ -1680,64 +2206,13 @@ export default function ChatInterface({
 
   return (
     <div className="chat-interface">
-      {/* Header */}
-      <div className="chat-header">
-        {onBackToConversations && (
-          <button
-            className="back-btn"
-            onClick={onBackToConversations}
-            title="Back to conversations"
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text)",
-              cursor: "pointer",
-              padding: "0.5rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: "0.5rem",
-            }}
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
-          </button>
-        )}
-        <div className="contact-info">
-          <h2>{selectedContact?.name || "Select a Contact"}</h2>
-          <p>{selectedContact?.lastSeen || ""}</p>
-        </div>
-      </div>
-
-      {/* Navigation Tabs */}
-      <div className="nav-tabs">
-        <button
-          className={`tab ${activeTab === "Chat" ? "active" : ""}`}
-          onClick={() => setActiveTab("Chat")}
-        >
-          Chat
-        </button>
-        <button
-          className={`tab ${activeTab === "Info" ? "active" : ""}`}
-          onClick={() => setActiveTab("Info")}
-        >
-          Info
-        </button>
-        <button
-          className={`tab ${activeTab === "Description" ? "active" : ""}`}
-          onClick={() => setActiveTab("Description")}
-        >
-          Description
-        </button>
-      </div>
+      <ChatHeader
+        selectedContact={selectedContact}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onBackToConversations={onBackToConversations}
+        onInitiateCall={onInitiateCall}
+      />
 
       {/* Chat Area */}
       <div className="chat-area" ref={chatAreaRef}>
@@ -1773,617 +2248,20 @@ export default function ChatInterface({
         )}
 
         {activeTab === "Chat" && (
-          <div className="messages-container">
-            {!peerId || currentConversationMessages.length === 0 ? (
-              <div className="empty-chat">
-                <p>No messages yet. Start the conversation!</p>
-              </div>
-            ) : (
-              // Render messages with day separators like WhatsApp
-              (() => {
-                const items = [];
-                let lastDayKey = null;
-
-                currentConversationMessages.forEach((msg, index) => {
-                  const createdAt = msg.createdAt
-                    ? new Date(msg.createdAt)
-                    : new Date();
-                  const dayKey = `${createdAt.getFullYear()}-${createdAt.getMonth()}-${createdAt.getDate()}`;
-                  if (dayKey !== lastDayKey) {
-                    lastDayKey = dayKey;
-                    items.push(
-                      <div
-                        key={`day-${dayKey}-${index}`}
-                        className="day-separator"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.5rem",
-                          margin: "0.75rem 0",
-                          color: "#6b7280",
-                          fontSize: "0.75rem",
-                        }}
-                      >
-                        <div
-                          style={{ flex: 1, height: 1, background: "#e5e7eb" }}
-                        />
-                        <span>{formatDateLabel(createdAt)}</span>
-                        <div
-                          style={{ flex: 1, height: 1, background: "#e5e7eb" }}
-                        />
-                      </div>
-                    );
-                  }
-
-                  if (msg.messageType === "system" && msg.system) {
-                    items.push(
-                      <div
-                        key={msg.id}
-                        className="system-card"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.5rem",
-                          margin: "0.5rem auto",
-                          background: "#f3f4f6",
-                          color: "#111827",
-                          borderRadius: "9999px",
-                          padding: "0.4rem 0.75rem",
-                          width: "fit-content",
-                          maxWidth: "90%",
-                          boxShadow: "inset 0 0 0 1px #e5e7eb",
-                        }}
-                      >
-                        <span aria-hidden style={{ color: "#059669" }}>
-                          {msg.system.kind === "new_nutritionist" ? "👤" : "🍽️"}
-                        </span>
-                        <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-                          {msg.content}
-                        </span>
-                        <span
-                          aria-hidden
-                          style={{ marginLeft: 4, color: "#9ca3af" }}
-                        >
-                          ›
-                        </span>
-                      </div>
-                    );
-                  } else {
-                    items.push(
-                      <div
-                        key={msg.id}
-                        className={`message-wrapper ${
-                          msg.isIncoming ? "incoming" : "outgoing"
-                        }`}
-                      >
-                        {/* Avatar before message for incoming */}
-                        {msg.isIncoming && (
-                          <div className="message-avatar">
-                            <img src={msg.avatar} alt={msg.sender} />
-                          </div>
-                        )}
-                        <div className="message-content">
-                          {msg.label && !msg.isIncoming && (
-                            <div className="message-label">{msg.label}</div>
-                          )}
-                          <div className="message-bubble">
-                            {msg.messageType === "image" &&
-                            (msg.imageData || msg.imageUrl) ? (
-                              <img
-                                src={msg.imageData || msg.imageUrl}
-                                alt={msg.fileName || "Image"}
-                                className="message-image"
-                                style={{
-                                  maxWidth: "100%",
-                                  maxHeight: "300px",
-                                  borderRadius: "0.5rem",
-                                  display: "block",
-                                  cursor: "zoom-in",
-                                  pointerEvents: "auto",
-                                  userSelect: "none",
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  openImageViewer(
-                                    msg.imageData || msg.imageUrl,
-                                    msg.fileName
-                                  );
-                                }}
-                                onTouchStart={(e) => {
-                                  e.stopPropagation();
-                                }}
-                                onTouchEnd={(e) => {
-                                  e.stopPropagation();
-                                  // Use setTimeout to avoid passive event listener issue
-                                  setTimeout(() => {
-                                    openImageViewer(
-                                      msg.imageData || msg.imageUrl,
-                                      msg.fileName
-                                    );
-                                  }, 0);
-                                }}
-                              />
-                            ) : msg.messageType === "audio" && msg.audioUrl ? (
-                              <div
-                                style={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: "0.25rem",
-                                }}
-                              >
-                                <audio
-                                  controls
-                                  src={msg.audioUrl}
-                                  style={{ width: 240 }}
-                                  onPlay={(e) => {
-                                    // Pause the previously playing audio if any
-                                    if (
-                                      currentlyPlayingAudioRef.current &&
-                                      currentlyPlayingAudioRef.current !==
-                                        e.target
-                                    ) {
-                                      currentlyPlayingAudioRef.current.pause();
-                                    }
-                                    // Set the current audio as the playing one
-                                    currentlyPlayingAudioRef.current = e.target;
-                                  }}
-                                  onEnded={(e) => {
-                                    // Clear the reference when audio ends
-                                    if (
-                                      currentlyPlayingAudioRef.current ===
-                                      e.target
-                                    ) {
-                                      currentlyPlayingAudioRef.current = null;
-                                    }
-                                  }}
-                                  onPause={(e) => {
-                                    // Clear the reference when audio is paused
-                                    if (
-                                      currentlyPlayingAudioRef.current ===
-                                      e.target
-                                    ) {
-                                      currentlyPlayingAudioRef.current = null;
-                                    }
-                                  }}
-                                />
-                                <div
-                                  style={{
-                                    fontSize: "0.75rem",
-                                    color: "#6b7280",
-                                  }}
-                                >
-                                  {msg.audioTranscription || ""}
-                                </div>
-                              </div>
-                            ) : msg.messageType === "file" &&
-                              (msg.fileUrl || msg.fileName) ? (
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "36px 1fr 28px",
-                                  gap: 10,
-                                  alignItems: "center",
-                                  maxWidth: 380,
-                                }}
-                              >
-                                <div
-                                  aria-hidden
-                                  style={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 8,
-                                    background: "#fee2e2", // light red
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    color: "#b91c1c",
-                                    fontWeight: 700,
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  {msg.fileMime && msg.fileMime.includes("pdf")
-                                    ? "PDF"
-                                    : "FILE"}
-                                </div>
-                                <div style={{ minWidth: 0 }}>
-                                  <div
-                                    style={{
-                                      fontWeight: 600,
-                                      color: "#0f172a",
-                                    }}
-                                  >
-                                    {msg.fileUrl ? (
-                                      <a
-                                        href={msg.fileUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        style={{ color: "#2563eb" }}
-                                        download={msg.fileName || undefined}
-                                      >
-                                        {msg.fileName || msg.fileUrl}
-                                      </a>
-                                    ) : (
-                                      msg.fileName
-                                    )}
-                                  </div>
-                                  <div
-                                    style={{ fontSize: 12, color: "#6b7280" }}
-                                  >
-                                    {(msg.fileMime || "file").toUpperCase()}
-                                    {msg.fileSizeBytes != null
-                                      ? ` • ${Math.round(
-                                          msg.fileSizeBytes / 1024
-                                        )} KB`
-                                      : msg.fileSize
-                                      ? ` • ${msg.fileSize} KB`
-                                      : ""}
-                                  </div>
-                                </div>
-                                <a
-                                  href={msg.fileUrl || undefined}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{
-                                    width: 28,
-                                    height: 28,
-                                    borderRadius: 14,
-                                    background: "#064e3b",
-                                    color: "white",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    textDecoration: "none",
-                                  }}
-                                  title="Download"
-                                  download={msg.fileName || undefined}
-                                >
-                                  ⬇
-                                </a>
-                              </div>
-                            ) : msg.messageType === "products" &&
-                              Array.isArray(msg.products) ? (
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gap: 8,
-                                  maxWidth: 380,
-                                }}
-                              >
-                                {msg.products.slice(0, 3).map((p) => (
-                                  <div
-                                    key={p.id}
-                                    style={{
-                                      display: "grid",
-                                      gridTemplateColumns: "84px 1fr 16px",
-                                      gap: 12,
-                                      alignItems: "center",
-                                      background: "#F3F4F6",
-                                      borderRadius: 16,
-                                      padding: 10,
-                                      boxShadow: "inset 0 0 0 1px #E5E7EB",
-                                    }}
-                                  >
-                                    <img
-                                      src={p.imageUrl}
-                                      alt={p.title}
-                                      style={{
-                                        width: 84,
-                                        height: 84,
-                                        objectFit: "cover",
-                                        borderRadius: 12,
-                                      }}
-                                    />
-                                    <div style={{ minWidth: 0 }}>
-                                      <div
-                                        style={{
-                                          fontWeight: 700,
-                                          lineHeight: 1.2,
-                                          color: "#0F172A",
-                                          display: "-webkit-box",
-                                          WebkitLineClamp: 2,
-                                          WebkitBoxOrient: "vertical",
-                                          overflow: "hidden",
-                                        }}
-                                      >
-                                        {p.title}
-                                      </div>
-                                      {p.description && (
-                                        <div
-                                          style={{
-                                            marginTop: 2,
-                                            color: "#6B7280",
-                                            fontSize: 12,
-                                            display: "-webkit-box",
-                                            WebkitLineClamp: 1,
-                                            WebkitBoxOrient: "vertical",
-                                            overflow: "hidden",
-                                          }}
-                                        >
-                                          {p.description}
-                                        </div>
-                                      )}
-                                      <div style={{ marginTop: 6 }}>
-                                        <div
-                                          style={{
-                                            fontWeight: 700,
-                                            color: "#0F172A",
-                                          }}
-                                        >
-                                          {formatCurrency(
-                                            p.currentPrice ??
-                                              p.originalPrice ??
-                                              0
-                                          )}
-                                        </div>
-                                        {p.originalPrice != null && (
-                                          <div
-                                            style={{
-                                              color: "#9CA3AF",
-                                              fontSize: 12,
-                                              textDecoration: "line-through",
-                                            }}
-                                          >
-                                            {formatCurrency(p.originalPrice)}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div
-                                      aria-hidden
-                                      style={{ color: "#9CA3AF", fontSize: 18 }}
-                                    >
-                                      ›
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : msg.messageType === "call" ? (
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                }}
-                              >
-                                <span aria-hidden>
-                                  {msg.callType === "video" ? "📹" : "📞"}
-                                </span>
-                                <div style={{ fontWeight: 600 }}>
-                                  {msg.callType === "video"
-                                    ? "Video call"
-                                    : "Voice call"}
-                                </div>
-                                {msg.callDurationSeconds != null && (
-                                  <div
-                                    style={{
-                                      fontSize: "0.8rem",
-                                      color: "#6b7280",
-                                    }}
-                                  >
-                                    {`${Math.floor(
-                                      msg.callDurationSeconds / 60
-                                    )}:${String(
-                                      msg.callDurationSeconds % 60
-                                    ).padStart(2, "0")}`}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              (() => {
-                                // Fallback: if content is JSON with media, render accordingly
-                                try {
-                                  if (
-                                    typeof msg.content === "string" &&
-                                    msg.content.trim().startsWith("{")
-                                  ) {
-                                    const obj = JSON.parse(msg.content);
-                                    if (
-                                      obj &&
-                                      typeof obj === "object" &&
-                                      obj.type
-                                    ) {
-                                      const t = String(obj.type).toLowerCase();
-                                      if (t === "image" && obj.url) {
-                                        return (
-                                          <img
-                                            src={obj.url}
-                                            alt={obj.fileName || "Image"}
-                                            className="message-image"
-                                            style={{
-                                              maxWidth: "100%",
-                                              maxHeight: "300px",
-                                              borderRadius: "0.5rem",
-                                              display: "block",
-                                              cursor: "zoom-in",
-                                              pointerEvents: "auto",
-                                              userSelect: "none",
-                                            }}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              e.preventDefault();
-                                              openImageViewer(
-                                                obj.url,
-                                                obj.fileName
-                                              );
-                                            }}
-                                            onTouchStart={(e) => {
-                                              e.stopPropagation();
-                                            }}
-                                            onTouchEnd={(e) => {
-                                              e.stopPropagation();
-                                              // Use setTimeout to avoid passive event listener issue
-                                              setTimeout(() => {
-                                                openImageViewer(
-                                                  obj.url,
-                                                  obj.fileName
-                                                );
-                                              }, 0);
-                                            }}
-                                          />
-                                        );
-                                      }
-                                      if (t === "file" && obj.url) {
-                                        return (
-                                          <div
-                                            style={{
-                                              display: "grid",
-                                              gridTemplateColumns:
-                                                "36px 1fr 28px",
-                                              gap: 10,
-                                              alignItems: "center",
-                                              maxWidth: 380,
-                                            }}
-                                          >
-                                            <div
-                                              aria-hidden
-                                              style={{
-                                                width: 36,
-                                                height: 36,
-                                                borderRadius: 8,
-                                                background: "#fee2e2",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                color: "#b91c1c",
-                                                fontWeight: 700,
-                                                fontSize: 12,
-                                              }}
-                                            >
-                                              {obj.mimeType &&
-                                              obj.mimeType.includes("pdf")
-                                                ? "PDF"
-                                                : "FILE"}
-                                            </div>
-                                            <div style={{ minWidth: 0 }}>
-                                              <div
-                                                style={{
-                                                  fontWeight: 600,
-                                                  color: "#0f172a",
-                                                }}
-                                              >
-                                                <a
-                                                  href={obj.url}
-                                                  target="_blank"
-                                                  rel="noreferrer"
-                                                  style={{ color: "#2563eb" }}
-                                                  download={
-                                                    obj.fileName || undefined
-                                                  }
-                                                >
-                                                  {obj.fileName || obj.url}
-                                                </a>
-                                              </div>
-                                              <div
-                                                style={{
-                                                  fontSize: 12,
-                                                  color: "#6b7280",
-                                                }}
-                                              >
-                                                {(
-                                                  obj.mimeType || "file"
-                                                ).toUpperCase()}
-                                                {obj.size != null
-                                                  ? ` • ${Math.round(
-                                                      obj.size / 1024
-                                                    )} KB`
-                                                  : ""}
-                                              </div>
-                                            </div>
-                                            <a
-                                              href={obj.url}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              style={{
-                                                width: 28,
-                                                height: 28,
-                                                borderRadius: 14,
-                                                background: "#064e3b",
-                                                color: "white",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                textDecoration: "none",
-                                              }}
-                                              title="Download"
-                                              download={
-                                                obj.fileName || undefined
-                                              }
-                                            >
-                                              ⬇
-                                            </a>
-                                          </div>
-                                        );
-                                      }
-                                    }
-                                  }
-                                } catch {}
-                                return (
-                                  <div className="message-text">
-                                    {msg.content}
-                                  </div>
-                                );
-                              })()
-                            )}
-                          </div>
-                          <div className="message-time">{msg.timestamp}</div>
-                        </div>
-                        {/* Avatar after message for outgoing */}
-                        {!msg.isIncoming && (
-                          <div className="message-avatar">
-                            <img src={msg.avatar} alt={msg.sender} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-                });
-                return items;
-              })()
-            )}
-          </div>
+          <ChatTab
+            peerId={peerId}
+            currentConversationMessages={currentConversationMessages}
+            selectedContact={selectedContact}
+            userId={userId}
+            formatDateLabel={formatDateLabel}
+            formatCurrency={formatCurrency}
+            openImageViewer={openImageViewer}
+            currentlyPlayingAudioRef={currentlyPlayingAudioRef}
+          />
         )}
-        {activeTab === "Info" && (
-          <div className="tab-content">
-            <div className="info-content">
-              <h3>Contact Information</h3>
-              <div className="info-item">
-                <strong>Name:</strong> {selectedContact?.name || "N/A"}
-              </div>
-              <div className="info-item">
-                <strong>User ID:</strong> {selectedContact?.id || "N/A"}
-              </div>
-              <div className="info-item">
-                <strong>Last Seen:</strong> {selectedContact?.lastSeen || "N/A"}
-              </div>
-              {selectedContact?.avatar && (
-                <div className="info-item">
-                  <strong>Avatar:</strong>
-                  <img
-                    src={selectedContact.avatar}
-                    alt={selectedContact.name}
-                    style={{
-                      width: "100px",
-                      height: "100px",
-                      borderRadius: "50%",
-                      marginTop: "0.5rem",
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {activeTab === "Info" && <InfoTab selectedContact={selectedContact} />}
         {activeTab === "Description" && (
-          <div className="tab-content">
-            <div className="description-content">
-              <h3>Description</h3>
-              <p>
-                {selectedContact?.description ||
-                  "No description available for this contact."}
-              </p>
-            </div>
-          </div>
+          <DescriptionTab selectedContact={selectedContact} />
         )}
       </div>
 
@@ -2695,32 +2573,6 @@ export default function ChatInterface({
                   </button>
                 )}
             </div>
-            {(typeof message === "string" ? message.trim() : message) ||
-            draftAttachment ? (
-              <button
-                className="send-button"
-                onClick={handleSendMessage}
-                disabled={
-                  !selectedContact ||
-                  (!draftAttachment &&
-                    !(typeof message === "string" ? message.trim() : message))
-                }
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
-              </button>
-            ) : null}
           </div>
           <div className="button-container">
             <button
@@ -2740,6 +2592,220 @@ export default function ChatInterface({
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.2a2 2 0 0 1-2.83-2.83l8.49-8.49" />
               </svg>
             </button>
+            <div
+              style={{
+                position: "relative",
+              }}
+            >
+              <button
+                className="icon-btn demo-btn"
+                disabled={!selectedContact}
+                onClick={() => setShowDemoMenu(!showDemoMenu)}
+                title="Test custom messages"
+              >
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+              </button>
+              {showDemoMenu && (
+                <div
+                  ref={demoMenuRef}
+                  className="demo-menu"
+                  style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    right: 0,
+                    marginBottom: "0.5rem",
+                    background: "white",
+                    borderRadius: "8px",
+                    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                    padding: "0.5rem",
+                    zIndex: 1000,
+                    minWidth: "200px",
+                    maxHeight: "400px",
+                    overflowY: "auto",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "0.5rem",
+                      fontWeight: "600",
+                      fontSize: "0.875rem",
+                      color: "#374151",
+                      borderBottom: "1px solid #e5e7eb",
+                      marginBottom: "0.25rem",
+                    }}
+                  >
+                    Test Custom Messages
+                  </div>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("image")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    📷 Image
+                  </button>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("audio")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    🎵 Audio
+                  </button>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("file")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    📄 File
+                  </button>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("call")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    📞 Video Call
+                  </button>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("meal_plan_updated")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    🍽️ Meal Plan Updated
+                  </button>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("new_nutritionist")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    👨‍⚕️ New Nutritionist
+                  </button>
+                  <button
+                    className="demo-menu-item"
+                    onClick={() => sendDemoMessage("products")}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      textAlign: "left",
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      borderRadius: "4px",
+                      fontSize: "0.875rem",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "#f3f4f6";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    🛍️ Products
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               title="Attach emoji"
               ref={buttonRef}
@@ -2747,6 +2813,18 @@ export default function ChatInterface({
               onClick={toggleEmojiPicker}
             >
               <Smile />
+            </button>
+            <button
+              className="send-button"
+              onClick={handleSendMessage}
+              disabled={
+                !selectedContact ||
+                (!draftAttachment &&
+                  !(typeof message === "string" ? message.trim() : message))
+              }
+              title="Send message"
+            >
+              Send
             </button>
 
             {showEmojiPicker && (

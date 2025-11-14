@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { SquarePen } from "lucide-react";
 import { SlidersHorizontal } from "lucide-react";
 import { ArrowUpDown } from "lucide-react";
-import config from "../config.js";
+import { Search } from "lucide-react";
+import config from "../../common/config.js";
 
 export default function ConversationList({
   conversations = [],
@@ -18,12 +19,15 @@ export default function ConversationList({
   const [showAddForm, setShowAddForm] = useState(false);
   const [showSortModal, setShowSortModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [newContactId, setNewContactId] = useState("");
   const [newContactName, setNewContactName] = useState("");
   const sortButtonRef = useRef(null);
   const sortDropdownRef = useRef(null);
   const filterButtonRef = useRef(null);
   const filterDropdownRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   const handleAddConversation = () => {
     if (newContactId.trim() && newContactName.trim()) {
@@ -73,6 +77,13 @@ export default function ConversationList({
     setShowFilterModal(false);
   };
 
+  // Focus search input when it becomes visible
+  useEffect(() => {
+    if (showSearchInput && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showSearchInput]);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -106,18 +117,42 @@ export default function ConversationList({
 
   // Filter and sort conversations
   const getFilteredAndSortedConversations = () => {
-    // First apply filter
-    let filtered = conversations;
+    // First, filter out the logged-in user (user can't send messages to themselves)
+    let filtered = conversations.filter((conv) => conv.id !== userId);
+
+    // Then apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((conv) => {
+        const nameMatch = conv.name?.toLowerCase().includes(query);
+        const contactNoMatch = conv.contactNo?.toLowerCase().includes(query);
+        const fitpassIdMatch = conv.fitpassId?.toLowerCase().includes(query);
+        return nameMatch || contactNoMatch || fitpassIdMatch;
+      });
+    }
+
+    // Then apply filter type
     if (filterType === "pending_customer") {
       // Reply pending from customer - last message was from doctor (userId)
-      filtered = conversations.filter(
-        (conv) => conv.lastMessageFrom === userId
-      );
+      filtered = filtered.filter((conv) => conv.lastMessageFrom === userId);
     } else if (filterType === "pending_doctor") {
       // Reply pending from doctor - last message was from customer (not userId)
-      filtered = conversations.filter(
+      filtered = filtered.filter(
         (conv) => conv.lastMessageFrom && conv.lastMessageFrom !== userId
       );
+    } else if (filterType === "first_response") {
+      // First Response - conversations with no message history
+      // A conversation has no message history if:
+      // 1. lastMessage is empty/undefined/null/whitespace, AND
+      // 2. lastMessageFrom is undefined (no messages have been sent/received)
+      // If lastMessage exists and is not empty, it means there's message history
+      filtered = filtered.filter((conv) => {
+        const hasNoLastMessage =
+          !conv.lastMessage || conv.lastMessage.trim() === "";
+        const hasNoLastMessageFrom = !conv.lastMessageFrom;
+        // Both conditions must be true for "First Response"
+        return hasNoLastMessage && hasNoLastMessageFrom;
+      });
     }
 
     // Then apply sort
@@ -138,14 +173,16 @@ export default function ConversationList({
     return sorted;
   };
 
+  const filteredConversations = getFilteredAndSortedConversations();
+
   return (
     <div className="conversation-list">
       {/* Header */}
       <div className="conversation-header">
         <div className="header-title">
           <span>All Tasks</span>
-          {conversations.length > 0 && (
-            <span className="task-badge">{conversations.length}</span>
+          {filteredConversations.length > 0 && (
+            <span className="task-badge">{filteredConversations.length}</span>
           )}
         </div>
         <div className="header-actions">
@@ -156,6 +193,20 @@ export default function ConversationList({
           >
             <SquarePen />
           </button>
+          <div className="search-button-wrapper">
+            <button
+              className={`header-icon-btn ${showSearchInput ? "active" : ""}`}
+              onClick={() => {
+                setShowSearchInput(!showSearchInput);
+                if (showSearchInput) {
+                  setSearchQuery("");
+                }
+              }}
+              title="Search conversations"
+            >
+              <Search />
+            </button>
+          </div>
           <div className="filter-button-wrapper">
             <button
               ref={filterButtonRef}
@@ -195,6 +246,14 @@ export default function ConversationList({
                   onClick={() => handleFilterOption("pending_doctor")}
                 >
                   Reply pending from doctor
+                </div>
+                <div
+                  className={`sort-dropdown-option ${
+                    filterType === "first_response" ? "active" : ""
+                  }`}
+                  onClick={() => handleFilterOption("first_response")}
+                >
+                  First Response
                 </div>
               </div>
             )}
@@ -237,6 +296,29 @@ export default function ConversationList({
         </div>
       </div>
 
+      {/* Search Input */}
+      {showSearchInput && (
+        <div className="search-input-container">
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder="Search by name, contact number, or Fitpass ID..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="search-input"
+          />
+          {searchQuery && (
+            <button
+              className="search-clear-btn"
+              onClick={() => setSearchQuery("")}
+              title="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Add Conversation Form */}
       {showAddForm && (
         <div className="add-conversation-form">
@@ -278,21 +360,25 @@ export default function ConversationList({
 
       {/* Conversation Items */}
       <div className="conversations-container">
-        {getFilteredAndSortedConversations().length === 0 ? (
+        {filteredConversations.length === 0 ? (
           <div className="empty-conversations">
             <p>
               {conversations.length === 0
                 ? "No conversations yet"
+                : searchQuery.trim()
+                ? "No conversations match your search"
                 : "No conversations match the current filter"}
             </p>
             <p className="empty-hint">
               {conversations.length === 0
                 ? "Click the + icon to start a new chat"
+                : searchQuery.trim()
+                ? "Try a different search term"
                 : "Try changing the filter"}
             </p>
           </div>
         ) : (
-          getFilteredAndSortedConversations().map((conv) => (
+          filteredConversations.map((conv) => (
             <div
               key={conv.id}
               className={`conversation-item ${
