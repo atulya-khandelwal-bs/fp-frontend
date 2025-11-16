@@ -22,6 +22,7 @@ export default function ChatInterface({
   onBackToConversations,
   onInitiateCall,
   onUpdateLastMessageFromHistory,
+  coachInfo = { name: "", profilePhoto: "" },
 }) {
   const [activeTab, setActiveTab] = useState("Chat");
   const [messages, setMessages] = useState([]);
@@ -742,7 +743,7 @@ export default function ChatInterface({
 
   // Fetch last 20 messages whenever peer changes (only once per peer)
   useEffect(() => {
-    if (!peerId || !chatClient) return;
+    if (!peerId) return;
 
     // Get the current peer from the ref to detect changes
     const currentFetchedPeer = fetchedPeersRef.current.currentPeer;
@@ -751,6 +752,9 @@ export default function ChatInterface({
     if (currentFetchedPeer !== peerId) {
       fetchedPeersRef.current.fetchedPeers = new Set();
       fetchedPeersRef.current.currentPeer = peerId;
+      // Reset cursor and hasMore when peer changes
+      setCursor(null);
+      setHasMore(true);
     }
 
     // Check if we've already fetched history for this peer
@@ -758,13 +762,9 @@ export default function ChatInterface({
       return;
     }
 
-    // Wait until the chat client is connected
+    // Fetch messages from API
     const checkAndFetch = async () => {
       try {
-        if (!chatClient.isOpened()) {
-          console.log("Waiting for chat client to connect...");
-          return;
-        }
         await fetchInitialMessages();
         // Mark this peer as fetched
         fetchedPeersRef.current.fetchedPeers.add(peerId);
@@ -774,7 +774,7 @@ export default function ChatInterface({
     };
 
     checkAndFetch();
-  }, [peerId, chatClient]);
+  }, [peerId]);
 
   // Filter messages to only show current conversation when displaying
 
@@ -1733,6 +1733,19 @@ export default function ChatInterface({
       };
     }
 
+    // Determine avatar: use sender_photo from API if available, otherwise use defaults
+    let messageAvatar = null;
+    if (msg.sender_photo) {
+      // Use sender_photo from API message (for both incoming and outgoing)
+      messageAvatar = msg.sender_photo;
+    } else if (msg.from === userId) {
+      // Outgoing message from current user - use coach's profile photo
+      messageAvatar = coachInfo?.profilePhoto || config.defaults.userAvatar;
+    } else {
+      // Incoming message - use selectedContact avatar or default
+      messageAvatar = selectedContact?.avatar || config.defaults.avatar;
+    }
+
     const baseMessage = {
       id: msg.id || `msg-${Date.now()}-${Math.random()}`,
       sender: msg.from === userId ? "You" : msg.from || "Unknown",
@@ -1745,10 +1758,7 @@ export default function ChatInterface({
       }),
       isIncoming: msg.from !== userId,
       peerId,
-      avatar:
-        msg.from === userId
-          ? config.defaults.userAvatar
-          : selectedContact?.avatar,
+      avatar: messageAvatar,
     };
 
     // Handle custom messages
@@ -1908,35 +1918,112 @@ export default function ChatInterface({
     };
   };
 
+  // Helper function to convert API message format to formatMessage format
+  const convertApiMessageToFormat = (apiMsg) => {
+    // Convert API response message to format expected by formatMessage
+    // The API returns: { message_id, conversation_id, from_user, to_user, sender_name, sender_photo, message_type, body, created_at, created_at_ms }
+    // formatMessage expects: { id, from, to, time, type, msg, msgContent, data, body, chat_type, conversation_id, message_id, ... }
+
+    // Check if body has a type field to determine if it's a custom message
+    const bodyObj = apiMsg.body;
+    const isTextMessage =
+      bodyObj && typeof bodyObj === "object" && bodyObj.type === "text";
+    const isCustomMessage =
+      bodyObj &&
+      typeof bodyObj === "object" &&
+      bodyObj.type &&
+      bodyObj.type !== "text";
+
+    // Convert body object to string if it's an object
+    let bodyContent = bodyObj;
+    if (bodyContent && typeof bodyContent === "object") {
+      // For text messages, extract just the message field
+      if (isTextMessage && bodyObj.message !== undefined) {
+        bodyContent = String(bodyObj.message);
+      } else {
+        // For custom messages, stringify the entire object
+        bodyContent = JSON.stringify(bodyContent);
+      }
+    } else if (bodyContent === null || bodyContent === undefined) {
+      bodyContent = "";
+    } else {
+      bodyContent = String(bodyContent);
+    }
+
+    return {
+      id: apiMsg.message_id || `api-${Date.now()}-${Math.random()}`,
+      from: String(apiMsg.from_user || ""),
+      to: String(apiMsg.to_user || ""),
+      time:
+        apiMsg.created_at_ms ||
+        new Date(apiMsg.created_at || Date.now()).getTime(),
+      // Determine type: if body has a type field and it's not "text", treat as custom
+      type: isCustomMessage ? "custom" : "txt",
+      msg: bodyContent,
+      msgContent: bodyContent,
+      data: bodyContent,
+      // Include backend API fields for formatMessage to detect backend format
+      body: bodyContent,
+      chat_type: apiMsg.chat_type,
+      conversation_id: apiMsg.conversation_id,
+      message_id: apiMsg.message_id,
+      from_user: apiMsg.from_user,
+      to_user: apiMsg.to_user,
+      sender_name: apiMsg.sender_name,
+      sender_photo: apiMsg.sender_photo,
+      message_type: apiMsg.message_type,
+      created_at: apiMsg.created_at,
+      created_at_ms: apiMsg.created_at_ms,
+      // For custom messages, also include the body object in ext.data so extractCustomMessageData can find it
+      ...(isCustomMessage && bodyObj ? { ext: { data: bodyObj } } : {}),
+    };
+  };
+
   // 🔹 Fetch latest 20 messages from server
   const fetchInitialMessages = async () => {
-    if (!peerId || !chatClient || !chatClientRef.current) {
-      console.warn("chatClient or peerId missing, skipping fetch");
+    if (!peerId) {
+      console.warn("peerId missing, skipping fetch");
       return;
     }
 
-    if (!chatClient.isOpened()) {
-      console.warn("chatClient not connected yet");
-      return;
-    }
     try {
-      const client = chatClientRef.current;
-      console.log("fetching initial messages");
-      const res = await client.getHistoryMessages({
-        targetId: peerId,
-        chatType: "singleChat",
-        pageSize: config.chat.pageSize,
-        searchDirection: "up",
-      });
-      if (res.cursor) setCursor(res.cursor);
-      setHasMore(true);
+      console.log("fetching initial messages from API");
 
-      console.log("res", res);
+      // Build URL with query parameters
+      // Format conversationId as "user_{peerId}" as required by the API
+      const conversationId = peerId.startsWith("user_")
+        ? peerId
+        : `user_${peerId}`;
+      const url = new URL(config.api.fetchMessages);
+      url.searchParams.append("conversationId", conversationId);
+      url.searchParams.append("limit", String(config.chat.pageSize || 20));
+
+      const response = await fetch(url.toString());
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch messages: ${response.status}`);
+      }
+
+      const res = await response.json();
+
+      // Set cursor for pagination (nextCursor is the timestamp of the last message)
+      if (res.nextCursor) {
+        setCursor(res.nextCursor);
+        setHasMore(true);
+      } else {
+        setHasMore(false);
+      }
+
+      console.log("API response:", res);
       console.log("messages count:", res?.messages?.length);
 
       const oldMessages = res?.messages || [];
 
-      const formatted = oldMessages.map((msg) => formatMessage(msg));
+      // Convert API messages to format expected by formatMessage
+      const convertedMessages = oldMessages.map((msg) =>
+        convertApiMessageToFormat(msg)
+      );
+      const formatted = convertedMessages.map((msg) => formatMessage(msg));
 
       // Find the most recent message from history to update last message
       if (formatted.length > 0 && onUpdateLastMessageFromHistory) {
@@ -2134,12 +2221,10 @@ export default function ChatInterface({
   };
 
   const fetchMoreMessages = async () => {
-    if (!peerId || !chatClientRef.current || isFetchingHistory || !hasMore)
-      return;
+    if (!peerId || isFetchingHistory || !hasMore) return;
 
     try {
       setIsFetchingHistory(true);
-      const client = chatClientRef.current;
 
       const chatArea = chatAreaRef.current;
       const prevScrollHeight = chatArea?.scrollHeight || 0;
@@ -2147,23 +2232,48 @@ export default function ChatInterface({
 
       console.log("fetchMoreMessages called with:", { cursor, peerId });
 
-      const res = await client.getHistoryMessages({
-        targetId: peerId,
-        chatType: "singleChat",
-        cursor: cursor || undefined,
-        pageSize: 20,
-        searchDirection: "up",
-      });
+      // Build URL with query parameters
+      // Format conversationId as "user_{peerId}" as required by the API
+      const conversationId = peerId.startsWith("user_")
+        ? peerId
+        : `user_${peerId}`;
+      const url = new URL(config.api.fetchMessages);
+      url.searchParams.append("conversationId", conversationId);
+      url.searchParams.append("limit", "20");
+
+      // Add cursor if available (for pagination)
+      if (cursor) {
+        url.searchParams.append("cursor", String(cursor));
+      }
+
+      const response = await fetch(url.toString());
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch more messages: ${response.status}`);
+      }
+
+      const res = await response.json();
 
       const newMessages = res?.messages || [];
       if (newMessages.length === 0) {
         setHasMore(false);
+        setIsFetchingHistory(false);
         return;
       }
 
-      if (res.cursor) setCursor(res.cursor);
+      // Set cursor for next pagination
+      if (res.nextCursor) {
+        setCursor(res.nextCursor);
+        setHasMore(true);
+      } else {
+        setHasMore(false);
+      }
 
-      const formatted = newMessages.map((msg) => formatMessage(msg));
+      // Convert API messages to format expected by formatMessage
+      const convertedMessages = newMessages.map((msg) =>
+        convertApiMessageToFormat(msg)
+      );
+      const formatted = convertedMessages.map((msg) => formatMessage(msg));
 
       // 🟡 Prevent scroll-to-bottom behavior
       isLoadingHistoryRef.current = true;

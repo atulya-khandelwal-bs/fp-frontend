@@ -238,58 +238,65 @@ function ChatApp() {
         const generatePreviewFromLastMessage = (lastMsg) => {
           if (!lastMsg) return null;
 
+          let parsed = null;
+
           // If it's already a string, try to parse it as JSON
           if (typeof lastMsg === "string") {
-            try {
-              const parsed = JSON.parse(lastMsg);
-              if (parsed && typeof parsed === "object" && parsed.type) {
-                const t = String(parsed.type).toLowerCase();
-                if (t === "image") return "Photo";
-                if (t === "file")
-                  return parsed.fileName ? `📎 ${parsed.fileName}` : "File";
-                if (t === "audio") return "Audio";
-                if (t === "meal_plan_updated") return "Meal plan updated";
-                if (t === "new_nutritionist" || t === "new_nutrionist")
-                  return "New nutritionist assigned";
-                if (t === "products") return "Products";
-                if (t === "call")
-                  return `${
-                    parsed.callType === "video" ? "Video" : "Voice"
-                  } call`;
-                if (t === "text") return parsed.body || "";
+            // Check if it looks like JSON (starts with { or [)
+            if (
+              lastMsg.trim().startsWith("{") ||
+              lastMsg.trim().startsWith("[")
+            ) {
+              try {
+                parsed = JSON.parse(lastMsg);
+              } catch {
+                // Not valid JSON, return as-is
+                return lastMsg;
               }
-            } catch {
-              // Not JSON, return as-is
+            } else {
+              // Plain text string, return as-is
               return lastMsg;
             }
+          } else if (typeof lastMsg === "object") {
+            // Already an object
+            parsed = lastMsg;
+          } else {
+            // Other type, convert to string
+            return String(lastMsg);
+          }
+
+          // Now process the parsed object
+          if (parsed && typeof parsed === "object" && parsed.type) {
+            const t = String(parsed.type).toLowerCase();
+            if (t === "image") return "Photo";
+            if (t === "file")
+              return parsed.fileName ? `📎 ${parsed.fileName}` : "File";
+            if (t === "audio") return "Audio";
+            if (t === "meal_plan_updated") return "Meal plan updated";
+            if (t === "new_nutritionist" || t === "new_nutrionist")
+              return "New nutritionist assigned";
+            if (t === "products") return "Products";
+            if (t === "call")
+              return `${parsed.callType === "video" ? "Video" : "Voice"} call`;
+            if (t === "text") {
+              // API uses "message" field for text messages
+              return parsed.message || parsed.body || "";
+            }
+          }
+
+          // If object has body or message, use it
+          if (parsed && typeof parsed === "object") {
+            if (parsed.body) return parsed.body;
+            if (parsed.message) return parsed.message;
+          }
+
+          // If we parsed from string but it's not a recognized format, return original string
+          if (typeof lastMsg === "string") {
             return lastMsg;
           }
 
-          // If it's an object, check for type field
-          if (typeof lastMsg === "object") {
-            if (lastMsg.type) {
-              const t = String(lastMsg.type).toLowerCase();
-              if (t === "image") return "Photo";
-              if (t === "file")
-                return lastMsg.fileName ? `📎 ${lastMsg.fileName}` : "File";
-              if (t === "audio") return "Audio";
-              if (t === "meal_plan_updated") return "Meal plan updated";
-              if (t === "new_nutritionist" || t === "new_nutrionist")
-                return "New nutritionist assigned";
-              if (t === "products") return "Products";
-              if (t === "call")
-                return `${
-                  lastMsg.callType === "video" ? "Video" : "Voice"
-                } call`;
-              if (t === "text") return lastMsg.body || "";
-            }
-            // If object has body, use it
-            if (lastMsg.body) return lastMsg.body;
-            // Otherwise stringify
-            return JSON.stringify(lastMsg);
-          }
-
-          return String(lastMsg);
+          // Otherwise stringify the object
+          return JSON.stringify(parsed || lastMsg);
         };
 
         // Map API response to app conversation format
@@ -500,6 +507,9 @@ function ChatApp() {
       // Send call notification message
       await handleSendMessage(callMessage);
 
+      // Ensure message is cleared after sending call message
+      setMessage("");
+
       // Set active call state
       setActiveCall({
         userId,
@@ -515,6 +525,8 @@ function ChatApp() {
     } catch (error) {
       console.error("Error initiating call:", error);
       addLog(`Failed to initiate call: ${error.message}`);
+      // Clear message even on error
+      setMessage("");
     }
   };
 
@@ -546,6 +558,8 @@ function ChatApp() {
   const handleEndCall = () => {
     setActiveCall(null);
     setIncomingCall(null);
+    // Clear any call message that might be in the input box
+    setMessage("");
   };
 
   // Helper function to generate preview from a formatted message object
@@ -861,6 +875,7 @@ function ChatApp() {
                 }
                 onInitiateCall={handleInitiateCall}
                 onUpdateLastMessageFromHistory={updateLastMessageFromHistory}
+                coachInfo={coachInfo}
               />
             ) : (
               <div className="no-conversation-selected">

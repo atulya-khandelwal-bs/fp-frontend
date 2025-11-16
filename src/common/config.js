@@ -45,6 +45,10 @@ const config = {
     get fetchConversations() {
       return `${this.backend}/api/fetch-conversations`;
     },
+
+    get fetchMessages() {
+      return `${this.backend}/api/chat/fetch-messages`;
+    },
   },
 
   // Default Images/Avatars
