@@ -118,41 +118,52 @@ export function createMessageHandlers({
 
       // Regular text message handling
       // Derive a friendly preview for conversation list
-      let preview = msg.msg;
+      let preview = msg.msg || "";
       try {
-        const obj = JSON.parse(msg.msg);
-        if (obj && typeof obj === "object" && obj.type) {
-          const t = String(obj.type).toLowerCase();
-          if (t === "image") preview = "Photo";
-          else if (t === "file")
-            preview = obj.fileName ? `📎 ${obj.fileName}` : "File";
-          else if (t === "audio") preview = "Audio";
-          else if (t === "text") preview = obj.body ?? "";
-          else if (
-            t === "call" &&
-            obj.action === "initiate" &&
-            handleIncomingCall
-          ) {
-            // Handle incoming call notification from text message
-            preview = "Video call";
-            console.log("Incoming call detected in text message:", obj);
-            if (obj.channel && obj.from) {
-              console.log("Calling handleIncomingCall with:", {
-                from: obj.from,
-                channel: obj.channel,
-                callId: obj.channel,
-              });
-              handleIncomingCall({
-                from: obj.from,
-                channel: obj.channel,
-                callId: obj.channel,
-              });
-            } else {
-              console.warn("Call message missing channel or from:", obj);
-            }
+        // Only try to parse if it looks like JSON
+        if (typeof msg.msg === "string" && msg.msg.trim().startsWith("{")) {
+          const obj = JSON.parse(msg.msg);
+          if (obj && typeof obj === "object" && obj.type) {
+            const t = String(obj.type).toLowerCase();
+            if (t === "image") preview = "Photo";
+            else if (t === "file")
+              preview = obj.fileName ? `📎 ${obj.fileName}` : "File";
+            else if (t === "audio") preview = "Audio";
+            else if (t === "text") preview = obj.body ?? "";
+            else if (t === "call") {
+              // Handle call messages - generate preview based on callType
+              const callType = obj.callType === "video" ? "Video" : "Voice";
+              preview = `${callType} call`;
+              // Handle incoming call notification if action is initiate
+              if (obj.action === "initiate" && handleIncomingCall) {
+                console.log("Incoming call detected in text message:", obj);
+                if (obj.channel && obj.from) {
+                  console.log("Calling handleIncomingCall with:", {
+                    from: obj.from,
+                    channel: obj.channel,
+                    callId: obj.channel,
+                  });
+                  handleIncomingCall({
+                    from: obj.from,
+                    channel: obj.channel,
+                    callId: obj.channel,
+                  });
+                } else {
+                  console.warn("Call message missing channel or from:", obj);
+                }
+              }
+            } else if (t === "meal_plan_updated") preview = "Meal plan updated";
+            else if (t === "new_nutritionist" || t === "new_nutrionist")
+              preview = "New nutritionist assigned";
+            else if (t === "products") preview = "Products";
+            // If we successfully parsed and generated a preview, use it
+            // Otherwise, preview remains as the original msg.msg
           }
         }
-      } catch {}
+      } catch {
+        // If parsing fails, preview stays as msg.msg (plain text)
+        // This is fine for regular text messages
+      }
 
       addLog(`${msg.from}: ${msg.msg}`);
 
@@ -420,25 +431,29 @@ export function createMessageHandlers({
               ? `📎 ${paramsData.fileName}`
               : "File";
           else if (t === "audio") preview = "Audio";
-          else if (
-            t === "call" &&
-            paramsData.action === "initiate" &&
-            handleIncomingCall
-          ) {
-            // Handle incoming call notification from custom message
-            preview = "Video call";
-            console.log(
-              "Incoming call detected in custom message:",
-              paramsData
-            );
-            if (paramsData.channel && paramsData.from) {
-              handleIncomingCall({
-                from: paramsData.from,
-                channel: paramsData.channel,
-                callId: paramsData.channel,
-              });
+          else if (t === "call") {
+            // Handle call messages - generate preview based on callType
+            const callType =
+              paramsData.callType === "video" ? "Video" : "Voice";
+            preview = `${callType} call`;
+            // Handle incoming call notification if action is initiate
+            if (paramsData.action === "initiate" && handleIncomingCall) {
+              console.log(
+                "Incoming call detected in custom message:",
+                paramsData
+              );
+              if (paramsData.channel && paramsData.from) {
+                handleIncomingCall({
+                  from: paramsData.from,
+                  channel: paramsData.channel,
+                  callId: paramsData.channel,
+                });
+              }
             }
-          }
+          } else if (t === "meal_plan_updated") preview = "Meal plan updated";
+          else if (t === "new_nutritionist" || t === "new_nutrionist")
+            preview = "New nutritionist assigned";
+          else if (t === "products") preview = "Products";
 
           messageContent = JSON.stringify(paramsData);
         } else {

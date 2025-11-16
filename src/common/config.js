@@ -37,6 +37,14 @@ const config = {
     get registerUserEndpoint() {
       return `${this.backend}/api/chat/register-user`;
     },
+
+    get fetchCoaches() {
+      return `${this.backend}/api/fetch-coaches`;
+    },
+
+    get fetchConversations() {
+      return `${this.backend}/api/fetch-conversations`;
+    },
   },
 
   // Default Images/Avatars

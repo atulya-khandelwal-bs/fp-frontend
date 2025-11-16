@@ -1678,11 +1678,68 @@ export default function ChatInterface({
 
   // Helper function to format a message from Agora Chat SDK
   const formatMessage = (msg) => {
+    // Check if this is a backend API message format (has keys like body, chat_type, conversation_id, etc.)
+    if (
+      msg &&
+      typeof msg === "object" &&
+      !msg.id &&
+      !msg.from &&
+      !msg.time &&
+      (msg.body !== undefined ||
+        msg.chat_type !== undefined ||
+        msg.conversation_id !== undefined ||
+        msg.message_id !== undefined)
+    ) {
+      // This is a backend API message format - convert it to Agora format
+      const backendMsg = msg;
+      // Ensure body is a string
+      let bodyContent = backendMsg.body || "";
+      if (typeof bodyContent !== "string") {
+        if (bodyContent && typeof bodyContent === "object") {
+          bodyContent = JSON.stringify(bodyContent);
+        } else {
+          bodyContent = String(bodyContent);
+        }
+      }
+      const agoraMsg = {
+        id: backendMsg.message_id || `backend-${Date.now()}-${Math.random()}`,
+        from: backendMsg.from_user || backendMsg.sender_name || userId,
+        to: backendMsg.to_user || peerId,
+        time: backendMsg.created_at_ms || backendMsg.created_at || Date.now(),
+        type: backendMsg.message_type === "text" ? "txt" : "custom",
+        msg: bodyContent,
+        msgContent: bodyContent,
+        data: bodyContent,
+      };
+      msg = agoraMsg;
+    }
+
+    // Ensure msg has required properties
+    if (!msg || typeof msg !== "object") {
+      console.warn("Invalid message format:", msg);
+      return {
+        id: `invalid-${Date.now()}`,
+        sender: "Unknown",
+        content: typeof msg === "string" ? msg : JSON.stringify(msg || {}),
+        createdAt: new Date(),
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        isIncoming: true,
+        peerId,
+        avatar: config.defaults.avatar,
+        messageType: "text",
+      };
+    }
+
     const baseMessage = {
-      id: msg.id,
-      sender: msg.from === userId ? "You" : msg.from,
-      createdAt: new Date(msg.time),
-      timestamp: new Date(msg.time).toLocaleTimeString([], {
+      id: msg.id || `msg-${Date.now()}-${Math.random()}`,
+      sender: msg.from === userId ? "You" : msg.from || "Unknown",
+      createdAt: new Date(msg.time || msg.createdAt || Date.now()),
+      timestamp: new Date(
+        msg.time || msg.createdAt || Date.now()
+      ).toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       }),
@@ -1777,15 +1834,35 @@ export default function ChatInterface({
       }
 
       // Fallback for custom messages without valid data
+      let fallbackContent = msg.msg || msg.msgContent || msg.data || "";
+      // Ensure content is always a string
+      if (typeof fallbackContent !== "string") {
+        if (fallbackContent && typeof fallbackContent === "object") {
+          // If it's an object, try to extract body or stringify it
+          fallbackContent =
+            fallbackContent.body || JSON.stringify(fallbackContent);
+        } else {
+          fallbackContent = String(fallbackContent);
+        }
+      }
       return {
         ...baseMessage,
-        content: msg.msg || msg.msgContent || msg.data || JSON.stringify(msg),
+        content: fallbackContent,
         messageType: "custom",
       };
     }
 
     // Handle text messages - check if it's JSON with a type field
-    const textContent = msg.msg || msg.msgContent || msg.data || "";
+    let textContent = msg.msg || msg.msgContent || msg.data || "";
+    // Ensure textContent is always a string
+    if (typeof textContent !== "string") {
+      if (textContent && typeof textContent === "object") {
+        // If it's an object, try to extract body or stringify it
+        textContent = textContent.body || JSON.stringify(textContent);
+      } else {
+        textContent = String(textContent);
+      }
+    }
     try {
       const parsed = JSON.parse(textContent);
       if (parsed && typeof parsed === "object" && parsed.type) {

@@ -115,62 +115,27 @@ export default function ConversationList({
     };
   }, [showSortModal, showFilterModal]);
 
-  // Filter and sort conversations
+  // Filter conversations (only client-side search, filtering and sorting handled by API)
   const getFilteredAndSortedConversations = () => {
     // First, filter out the logged-in user (user can't send messages to themselves)
     let filtered = conversations.filter((conv) => conv.id !== userId);
 
-    // Then apply search filter
+    // Apply search filter (client-side only, since API doesn't support search)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter((conv) => {
         const nameMatch = conv.name?.toLowerCase().includes(query);
-        const contactNoMatch = conv.contactNo?.toLowerCase().includes(query);
-        const fitpassIdMatch = conv.fitpassId?.toLowerCase().includes(query);
-        return nameMatch || contactNoMatch || fitpassIdMatch;
+        // Search in conversationId or userId if available
+        const idMatch = conv.id?.toLowerCase().includes(query);
+        return nameMatch || idMatch;
       });
     }
 
-    // Then apply filter type
-    if (filterType === "pending_customer") {
-      // Reply pending from customer - last message was from doctor (userId)
-      filtered = filtered.filter((conv) => conv.lastMessageFrom === userId);
-    } else if (filterType === "pending_doctor") {
-      // Reply pending from doctor - last message was from customer (not userId)
-      filtered = filtered.filter(
-        (conv) => conv.lastMessageFrom && conv.lastMessageFrom !== userId
-      );
-    } else if (filterType === "first_response") {
-      // First Response - conversations with no message history
-      // A conversation has no message history if:
-      // 1. lastMessage is empty/undefined/null/whitespace, AND
-      // 2. lastMessageFrom is undefined (no messages have been sent/received)
-      // If lastMessage exists and is not empty, it means there's message history
-      filtered = filtered.filter((conv) => {
-        const hasNoLastMessage =
-          !conv.lastMessage || conv.lastMessage.trim() === "";
-        const hasNoLastMessageFrom = !conv.lastMessageFrom;
-        // Both conditions must be true for "First Response"
-        return hasNoLastMessage && hasNoLastMessageFrom;
-      });
-    }
+    // Note: Filtering by type (pending_customer, pending_doctor, first_response, no_messages)
+    // and sorting (newest/oldest) are now handled by the API via query parameters.
+    // The API returns pre-filtered and pre-sorted results.
 
-    // Then apply sort
-    const sorted = [...filtered].sort((a, b) => {
-      const timeA =
-        a.timestamp instanceof Date ? a.timestamp : new Date(a.timestamp);
-      const timeB =
-        b.timestamp instanceof Date ? b.timestamp : new Date(b.timestamp);
-      if (isNaN(timeA.getTime())) return 1;
-      if (isNaN(timeB.getTime())) return -1;
-
-      if (sortOrder === "newest") {
-        return timeB - timeA; // Most recent first
-      } else {
-        return timeA - timeB; // Oldest first
-      }
-    });
-    return sorted;
+    return filtered;
   };
 
   const filteredConversations = getFilteredAndSortedConversations();
@@ -257,6 +222,14 @@ export default function ConversationList({
                   onClick={() => handleFilterOption("first_response")}
                 >
                   First Response
+                </div>
+                <div
+                  className={`sort-dropdown-option ${
+                    filterType === "no_messages" ? "active" : ""
+                  }`}
+                  onClick={() => handleFilterOption("no_messages")}
+                >
+                  No Messages
                 </div>
               </div>
             )}
@@ -402,7 +375,12 @@ export default function ConversationList({
                 <div className="conversation-content">
                   <div className="conversation-name">{conv.name}</div>
                   <div className="conversation-preview">
-                    {conv.lastMessage || "No messages yet"}
+                    {typeof conv.lastMessage === "string"
+                      ? conv.lastMessage
+                      : typeof conv.lastMessage === "object" && conv.lastMessage
+                      ? conv.lastMessage.body ||
+                        JSON.stringify(conv.lastMessage)
+                      : "No messages yet"}
                   </div>
                 </div>
               </div>

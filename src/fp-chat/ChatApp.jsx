@@ -14,6 +14,22 @@ import config from "../common/config.js";
 import { buildCustomExts } from "./utils/buildCustomExts.js";
 import { createMessageHandlers } from "./utils/messageHandlers.js";
 
+// Cookie utility functions
+const getCookie = (name) => {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(";");
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === " ") c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+  }
+  return null;
+};
+
+const deleteCookie = (name) => {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+};
+
 function ChatApp() {
   const appKey = config.agora.appKey;
   const [userId, setUserId] = useState("");
@@ -28,7 +44,8 @@ function ChatApp() {
   const [isMobileView, setIsMobileView] = useState(false);
   const [showChatOnMobile, setShowChatOnMobile] = useState(false);
   const [sortOrder, setSortOrder] = useState("newest"); // "newest" or "oldest"
-  const [filterType, setFilterType] = useState("all"); // "all", "pending_customer", "pending_doctor"
+  const [filterType, setFilterType] = useState("all"); // "all", "pending_customer", "pending_doctor", "first_response", "no_messages"
+  const [coachInfo, setCoachInfo] = useState({ name: "", profilePhoto: "" }); // Store coach name and profile photo
 
   // Call state management
   const [activeCall, setActiveCall] = useState(null); // { userId, peerId, channel, isInitiator }
@@ -112,6 +129,45 @@ function ChatApp() {
     clientRefForHandlers.current = clientRef.current;
   }, [clientRef]);
 
+  // Check for saved userId in cookies on mount
+  useEffect(() => {
+    const savedUserId = getCookie("loggedInUserId");
+    if (savedUserId) {
+      setUserId(savedUserId);
+    }
+  }, []);
+
+  // Fetch coach info when userId is set
+  useEffect(() => {
+    const fetchCoachInfo = async () => {
+      if (!userId) {
+        setCoachInfo({ name: "", profilePhoto: "" });
+        return;
+      }
+
+      try {
+        const response = await fetch(config.api.fetchCoaches);
+
+        if (response.ok) {
+          const data = await response.json();
+          const coach = data.coaches?.find(
+            (c) => String(c.coachId) === String(userId)
+          );
+          if (coach) {
+            setCoachInfo({
+              name: coach.coachName || "",
+              profilePhoto: coach.coachPhoto || "",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching coach info:", error);
+      }
+    };
+
+    fetchCoachInfo();
+  }, [userId]);
+
   // Detect mobile view
   useEffect(() => {
     const checkMobile = () => {
@@ -130,72 +186,149 @@ function ChatApp() {
     }
   }, [selectedContact, showChatOnMobile]);
 
-  // Initialize sample data for testing when user logs in
+  // Map filter type to API format
+  const getApiFilter = (filterType) => {
+    const filterMap = {
+      all: "all",
+      first_response: "first_response",
+      pending_customer: "pending_from_customer",
+      pending_doctor: "pending_from_nutritionist",
+      no_messages: "no_messages",
+    };
+    return filterMap[filterType] || "all";
+  };
+
+  // Map sort order to API format
+  const getApiSort = (sortOrder) => {
+    return sortOrder === "newest" ? "desc" : "asc";
+  };
+
+  // Fetch conversations from API when user logs in or filter/sort changes
   useEffect(() => {
-    if (isLoggedIn && conversations.length === 0) {
-      const sampleUsers = [
-        {
-          id: "1234567", // Agora ID
-          name: "John Doe",
-          contryCode: "+91",
-          contactNo: "9123456789",
-          fitpassId: "FP001",
-          type: "Nutritionist",
-          lastMessage: "Hello, I need help with my fitness plan",
-          timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-          avatar:
-            "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face",
-        },
-        {
-          id: "7654321", // Agora ID
-          name: "Jane Smith",
-          contryCode: "+91",
-          contactNo: "9123456789",
-          fitpassId: "FP002",
-          type: "Customer",
-          timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-          avatar:
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=40&h=40&fit=crop&crop=face",
-        },
-        {
-          id: "123456", // Agora ID
-          name: "Mike Johnson",
-          contryCode: "+91",
-          contactNo: "8696012345",
-          fitpassId: "FP003",
-          type: "Customer",
-          timestamp: new Date(Date.now() - 30 * 60 * 1000), // 30 minutes ago
-          avatar:
-            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=40&h=40&fit=crop&crop=face",
-        },
-        {
-          id: "1230045", // Agora ID
-          name: "Sarah Williams",
-          contryCode: "+91",
-          contactNo: "1234567890",
-          fitpassId: "FP004",
-          type: "Nutritionist",
-          timestamp: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes ago
-          avatar:
-            "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=40&h=40&fit=crop&crop=face",
-        },
-        {
-          id: "3210054", // Agora ID
-          name: "David Brown",
-          contryCode: "+91",
-          contactNo: "9876543210",
-          fitpassId: "FP005",
-          type: "Customer",
-          timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-          avatar:
-            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=40&h=40&fit=crop&crop=face",
-        },
-      ];
-      setConversations(sampleUsers);
-      addLog("Sample test data loaded: 5 users");
-    }
+    const fetchConversations = async () => {
+      if (!isLoggedIn || !userId) {
+        return;
+      }
+
+      try {
+        const apiFilter = getApiFilter(filterType);
+        const apiSort = getApiSort(sortOrder);
+
+        addLog(
+          `Fetching conversations for coach ${userId} (filter: ${apiFilter}, sort: ${apiSort})...`
+        );
+
+        const url = new URL(config.api.fetchConversations);
+        url.searchParams.append("coachId", userId);
+        url.searchParams.append("filter", apiFilter);
+        url.searchParams.append("sort", apiSort);
+        url.searchParams.append("page", "1");
+        url.searchParams.append("limit", "20");
+
+        const response = await fetch(url.toString());
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch conversations: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const apiConversations = data.conversations || [];
+
+        // Helper function to generate preview from lastMessage (could be string or object)
+        const generatePreviewFromLastMessage = (lastMsg) => {
+          if (!lastMsg) return null;
+
+          // If it's already a string, try to parse it as JSON
+          if (typeof lastMsg === "string") {
+            try {
+              const parsed = JSON.parse(lastMsg);
+              if (parsed && typeof parsed === "object" && parsed.type) {
+                const t = String(parsed.type).toLowerCase();
+                if (t === "image") return "Photo";
+                if (t === "file")
+                  return parsed.fileName ? `📎 ${parsed.fileName}` : "File";
+                if (t === "audio") return "Audio";
+                if (t === "meal_plan_updated") return "Meal plan updated";
+                if (t === "new_nutritionist" || t === "new_nutrionist")
+                  return "New nutritionist assigned";
+                if (t === "products") return "Products";
+                if (t === "call")
+                  return `${
+                    parsed.callType === "video" ? "Video" : "Voice"
+                  } call`;
+                if (t === "text") return parsed.body || "";
+              }
+            } catch {
+              // Not JSON, return as-is
+              return lastMsg;
+            }
+            return lastMsg;
+          }
+
+          // If it's an object, check for type field
+          if (typeof lastMsg === "object") {
+            if (lastMsg.type) {
+              const t = String(lastMsg.type).toLowerCase();
+              if (t === "image") return "Photo";
+              if (t === "file")
+                return lastMsg.fileName ? `📎 ${lastMsg.fileName}` : "File";
+              if (t === "audio") return "Audio";
+              if (t === "meal_plan_updated") return "Meal plan updated";
+              if (t === "new_nutritionist" || t === "new_nutrionist")
+                return "New nutritionist assigned";
+              if (t === "products") return "Products";
+              if (t === "call")
+                return `${
+                  lastMsg.callType === "video" ? "Video" : "Voice"
+                } call`;
+              if (t === "text") return lastMsg.body || "";
+            }
+            // If object has body, use it
+            if (lastMsg.body) return lastMsg.body;
+            // Otherwise stringify
+            return JSON.stringify(lastMsg);
+          }
+
+          return String(lastMsg);
+        };
+
+        // Map API response to app conversation format
+        const mappedConversations = apiConversations.map((conv) => {
+          // Generate preview from lastMessage (handles both string and object formats)
+          const lastMessage = generatePreviewFromLastMessage(conv.lastMessage);
+
+          return {
+            id: String(conv.userId), // Use userId as Agora ID (string)
+            name: conv.userName || `User ${conv.userId}`,
+            avatar: conv.userPhoto || config.defaults.avatar,
+            lastMessage: lastMessage,
+            timestamp: conv.lastMessageTime
+              ? new Date(conv.lastMessageTime)
+              : null,
+            lastMessageFrom: conv.lastMessageSender
+              ? String(conv.lastMessageSender)
+              : null,
+            // Store additional API data for reference
+            conversationId: conv.conversationId,
+            messageCount: conv.messageCount || 0,
+            unreadCount: conv.unreadCount || 0,
+            filterState: conv.filterState,
+          };
+        });
+
+        setConversations(mappedConversations);
+        addLog(`Loaded ${mappedConversations.length} conversation(s) from API`);
+      } catch (error) {
+        addLog(`Error fetching conversations: ${error.message}`);
+        console.error("Error fetching conversations:", error);
+        // Set empty array on error to prevent retry loop
+        setConversations([]);
+      }
+    };
+
+    fetchConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, conversations.length, userId]);
+  }, [isLoggedIn, userId, filterType, sortOrder]);
 
   const handleLogin = async () => {
     if (!userId) {
@@ -282,6 +415,9 @@ function ChatApp() {
     setConversations([]);
     setPeerId("");
     setMessage("");
+    setUserId("");
+    // Clear cookie on logout
+    deleteCookie("loggedInUserId");
   };
 
   const handleSelectContact = (contact) => {
@@ -547,6 +683,13 @@ function ChatApp() {
 
       let options = {};
 
+      // Prepare ext properties with sender info
+      const extProperties = {
+        senderName: coachInfo.name || userId,
+        senderProfile: coachInfo.profilePhoto || config.defaults.avatar,
+        isFromUser: false,
+      };
+
       if (isCustomMessage) {
         // Build customExts based on message type
         const customExts = buildCustomExts(parsedPayload);
@@ -565,7 +708,7 @@ function ChatApp() {
           chatType: "singleChat",
           customEvent: "customEvent",
           customExts,
-          ext: {},
+          ext: extProperties,
         };
       } else {
         // Plain text message
@@ -574,6 +717,7 @@ function ChatApp() {
           type: "txt",
           to: peerId,
           msg: messageToSend,
+          ext: extProperties,
         };
       }
 

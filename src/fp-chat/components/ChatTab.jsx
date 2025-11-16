@@ -341,7 +341,11 @@ export default function ChatTab({
                         }}
                       />
                       <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-                        {msg.content}
+                        {typeof msg.content === "string"
+                          ? msg.content
+                          : typeof msg.content === "object"
+                          ? msg.content.body || JSON.stringify(msg.content)
+                          : String(msg.content || "")}
                       </span>
                       <span
                         aria-hidden
@@ -1239,8 +1243,17 @@ export default function ChatTab({
                               }
                             }
                           } catch {}
+                          // Ensure content is always a string
+                          const contentToRender =
+                            typeof msg.content === "string"
+                              ? msg.content
+                              : typeof msg.content === "object"
+                              ? msg.content.body || JSON.stringify(msg.content)
+                              : String(msg.content || "");
                           return (
-                            <div className="message-text">{msg.content}</div>
+                            <div className="message-text">
+                              {contentToRender}
+                            </div>
                           );
                         })()
                       )}
