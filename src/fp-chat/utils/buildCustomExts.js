@@ -11,11 +11,14 @@ export function buildCustomExts(payload) {
 
   switch (type) {
     case "image":
+      console.log("payload", payload);
+      console.log("payload.height", typeof payload.height);
+      console.log("payload.width", typeof payload.width);
       return {
         type: "image",
         url: payload.url,
-        height: payload.height,
-        width: payload.width,
+        height: (payload.height ?? 720).toString(),
+        width: (payload.width ?? 1280).toString(),
       };
 
     case "audio":
@@ -28,7 +31,8 @@ export function buildCustomExts(payload) {
         type: "audio",
         url: payload.url,
         transcription: payload.transcription || "",
-        duration: typeof durationMs === "number" ? durationMs : 0, // in milliseconds, default to 0 if not provided
+        duration:
+          typeof durationMs === "number" ? (durationMs / 1000).toString() : "0", // in milliseconds, default to 0 if not provided
       };
 
     case "file":
@@ -37,7 +41,7 @@ export function buildCustomExts(payload) {
         url: payload.url,
         fileName: payload.fileName || "",
         mimeType: payload.mimeType || "application/octet-stream",
-        size: typeof payload.size === "number" ? payload.size : 0, // in bytes
+        size: typeof payload.size === "number" ? payload.size.toString() : "0", // in bytes
       };
 
     case "meal_plan_updated":

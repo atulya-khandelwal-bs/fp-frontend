@@ -891,7 +891,12 @@ function ChatApp() {
           </div>
           {/* User Details Panel */}
           <div className="user-details-panel-wrapper">
-            <UserDetails selectedContact={selectedContact} />
+            <UserDetails
+              selectedContact={selectedContact}
+              userId={userId}
+              peerId={peerId}
+              onSend={handleSendMessage}
+            />
           </div>
         </div>
       )}

@@ -597,7 +597,8 @@ export default function ChatTab({
                             {msg.products.map((p) => {
                               const productName =
                                 p.name || p.title || "Product";
-                              const productImage = p.image || p.imageUrl || "";
+                              const productImage =
+                                p.image || p.imageUrl || p.photoUrl || "";
                               const currentPrice =
                                 p.price ||
                                 p.currentPrice ||

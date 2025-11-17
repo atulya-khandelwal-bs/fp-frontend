@@ -157,7 +157,8 @@ export default function ChatInterface({
               ? "audio/*"
               : "application/octet-stream"),
           size: obj.size ?? null,
-          duration: obj.duration ?? null, // Include duration for audio
+          duration: obj.duration ?? null,
+          // Include duration for audio
         };
       }
     } catch {}
@@ -374,6 +375,23 @@ export default function ChatInterface({
                     products = Array.isArray(obj.products) ? obj.products : [];
                     messageContent = "Products";
                     break;
+                  case "new_nutritionist":
+                  case "new_nutrionist":
+                    messageType = "system";
+                    system = {
+                      kind: "new_nutritionist",
+                      id: obj.id || "",
+                      name: obj.name || "",
+                      title: obj.title || "",
+                      profilePhoto: obj.profilePhoto || "",
+                    };
+                    messageContent = "New nutritionist assigned";
+                    break;
+                  case "meal_plan_updated":
+                    messageType = "system";
+                    system = { kind: "meal_plan_updated" };
+                    messageContent = "Meal plan updated";
+                    break;
                   case "call":
                     messageType = "call";
                     callType = obj.callType || "voice";
@@ -386,7 +404,21 @@ export default function ChatInterface({
                   default: {
                     const parsed = parseSystemPayload(content);
                     if (parsed) {
-                      system = parsed;
+                      if (
+                        parsed.kind === "new_nutritionist" &&
+                        parsed.payload
+                      ) {
+                        // Extract nutritionist data from payload
+                        system = {
+                          kind: "new_nutritionist",
+                          id: parsed.payload.id || "",
+                          name: parsed.payload.name || "",
+                          title: parsed.payload.title || "",
+                          profilePhoto: parsed.payload.profilePhoto || "",
+                        };
+                      } else {
+                        system = parsed;
+                      }
                       messageType = "system";
                       messageContent = getSystemLabel(parsed);
                     }
@@ -512,6 +544,23 @@ export default function ChatInterface({
                     products = Array.isArray(obj.products) ? obj.products : [];
                     messageContent = "Products";
                     break;
+                  case "new_nutritionist":
+                  case "new_nutrionist":
+                    messageType = "system";
+                    system = {
+                      kind: "new_nutritionist",
+                      id: obj.id || "",
+                      name: obj.name || "",
+                      title: obj.title || "",
+                      profilePhoto: obj.profilePhoto || "",
+                    };
+                    messageContent = "New nutritionist assigned";
+                    break;
+                  case "meal_plan_updated":
+                    messageType = "system";
+                    system = { kind: "meal_plan_updated" };
+                    messageContent = "Meal plan updated";
+                    break;
                   case "call":
                     messageType = "call";
                     callType = obj.callType || "voice";
@@ -524,7 +573,21 @@ export default function ChatInterface({
                   default: {
                     const parsed = parseSystemPayload(content);
                     if (parsed) {
-                      system = parsed;
+                      if (
+                        parsed.kind === "new_nutritionist" &&
+                        parsed.payload
+                      ) {
+                        // Extract nutritionist data from payload
+                        system = {
+                          kind: "new_nutritionist",
+                          id: parsed.payload.id || "",
+                          name: parsed.payload.name || "",
+                          title: parsed.payload.title || "",
+                          profilePhoto: parsed.payload.profilePhoto || "",
+                        };
+                      } else {
+                        system = parsed;
+                      }
                       messageType = "system";
                       messageContent = getSystemLabel(parsed);
                     }
@@ -1251,22 +1314,39 @@ export default function ChatInterface({
         },
       });
 
+      const getImageDimensions = (url) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.width, height: img.height });
+          img.onerror = () => resolve({ width: 1280, height: 720 });
+          img.src = url;
+        });
+      };
+
       // 3️⃣ Build chat message
-      const payload = file.type.startsWith("image/")
-        ? {
-            type: "image",
-            url: fileUrl,
-            fileName: safeFileName,
-            mimeType: file.type,
-            size: file.size,
-          }
-        : {
-            type: "file",
-            url: fileUrl,
-            fileName: safeFileName,
-            mimeType: file.type,
-            size: file.size,
-          };
+      let payload;
+
+      if (file.type.startsWith("image/")) {
+        const dims = await getImageDimensions(fileUrl);
+
+        payload = {
+          type: "image",
+          url: fileUrl,
+          fileName: safeFileName,
+          mimeType: file.type,
+          size: file.size,
+          width: dims.width,
+          height: dims.height,
+        };
+      } else {
+        payload = {
+          type: "file",
+          url: fileUrl,
+          fileName: safeFileName,
+          mimeType: file.type,
+          size: file.size,
+        };
+      }
 
       setMessage(JSON.stringify(payload));
 

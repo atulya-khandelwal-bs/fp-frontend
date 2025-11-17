@@ -49,6 +49,18 @@ const config = {
     get fetchMessages() {
       return `${this.backend}/api/chat/fetch-messages`;
     },
+
+    get sendMealPlanUpdate() {
+      return `${this.backend}/api/chat/send-mean-plan-update-message`;
+    },
+
+    get healthCoachChanged() {
+      return `${this.backend}/api/chat/health-coach-changed-message`;
+    },
+
+    get sendProducts() {
+      return `${this.backend}/api/chat/send-product-message`;
+    },
   },
 
   // Default Images/Avatars
