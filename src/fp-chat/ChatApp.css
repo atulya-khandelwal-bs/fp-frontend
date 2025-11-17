@@ -1744,17 +1744,19 @@ input {
   border: none;
   cursor: pointer;
   font-size: 20px;
-  color: #555;
+  color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s ease, color 0.2s ease;
+  padding: 0.5rem;
+  border-radius: 50%;
+  transition: all 0.2s;
   outline: none;
 }
 
-.emoji-button:hover {
-  transform: scale(1.2);
-  color: #007bff; /* blue tint on hover */
+.emoji-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--light-gray);
 }
 
 .emoji-button:focus,
