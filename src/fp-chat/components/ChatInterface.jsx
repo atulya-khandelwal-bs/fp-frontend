@@ -396,6 +396,7 @@ export default function ChatInterface({
                     // Only show call messages if:
                     // It's an end action with duration > 0 (both users connected)
                     // Hide initiate messages - they will only appear after call ends with both users
+                    // If only nutritionist or only client was in call, do NOT show the message
                     if (obj.action === "initiate") {
                       // Don't show initiate messages immediately
                       messageType = "hidden"; // Mark as hidden, will be filtered out
@@ -405,7 +406,8 @@ export default function ChatInterface({
                       obj.action === "end" &&
                       (!obj.duration || obj.duration <= 0)
                     ) {
-                      // Don't show call end message if no duration (only one user joined)
+                      // Don't show call end message if no duration or duration <= 0
+                      // This means only one user (nutritionist or client) was in the call
                       messageType = "hidden"; // Mark as hidden, will be filtered out
                       break;
                     }
@@ -586,6 +588,7 @@ export default function ChatInterface({
                     // Only show call messages if:
                     // It's an end action with duration > 0 (both users connected)
                     // Hide initiate messages - they will only appear after call ends with both users
+                    // If only nutritionist or only client was in call, do NOT show the message
                     if (obj.action === "initiate") {
                       // Don't show initiate messages immediately
                       messageType = "hidden"; // Mark as hidden, will be filtered out
@@ -595,7 +598,8 @@ export default function ChatInterface({
                       obj.action === "end" &&
                       (!obj.duration || obj.duration <= 0)
                     ) {
-                      // Don't show call end message if no duration (only one user joined)
+                      // Don't show call end message if no duration or duration <= 0
+                      // This means only one user (nutritionist or client) was in the call
                       messageType = "hidden"; // Mark as hidden, will be filtered out
                       break;
                     }
@@ -713,8 +717,40 @@ export default function ChatInterface({
           } else if (msg.messageType === "file" && msg.fileUrl) {
             customKey = msg.fileUrl;
           } else if (msg.messageType === "call") {
-            // For call messages, use callType and channel if available
-            customKey = `${msg.callType || "video"}-${msg.channel || ""}`;
+            // For call messages, use content-based matching (not ID) so log and server messages match
+            // Extract action and duration from message object or content
+            let callAction = msg.callAction || "";
+            let callDuration =
+              msg.callDurationSeconds != null
+                ? String(msg.callDurationSeconds)
+                : "";
+            let callType = msg.callType || "video";
+            let callChannel = msg.channel || "";
+
+            // If fields not on message object, try to extract from content
+            if (
+              (!callAction || !callChannel) &&
+              typeof msg.content === "string"
+            ) {
+              try {
+                const contentObj = JSON.parse(msg.content);
+                if (contentObj && typeof contentObj === "object") {
+                  if (contentObj.action) callAction = contentObj.action;
+                  if (contentObj.duration != null)
+                    callDuration = String(contentObj.duration);
+                  if (contentObj.callType) callType = contentObj.callType;
+                  if (contentObj.channel) callChannel = contentObj.channel;
+                }
+              } catch {}
+            }
+
+            // Use content-based key with timestamp in 2-second window to match log/server messages
+            // This allows log and server messages of the same call to match
+            // But different calls (different durations or times > 2s apart) won't match
+            const timestampSeconds = Math.floor(
+              new Date(msg.createdAt).getTime() / 2000
+            );
+            customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
           } else if (msg.messageType === "products" && msg.products) {
             // For products, use the first product ID
             customKey = msg.products[0]?.id || "";
@@ -732,9 +768,19 @@ export default function ChatInterface({
                 } else if (msg.messageType === "file" && contentObj.url) {
                   customKey = contentObj.url;
                 } else if (msg.messageType === "call") {
-                  customKey = `${contentObj.callType || "video"}-${
-                    contentObj.channel || ""
-                  }`;
+                  // For call messages from content, use content-based matching
+                  const callAction = contentObj.action || "";
+                  const callDuration =
+                    contentObj.duration != null
+                      ? String(contentObj.duration)
+                      : "";
+                  const callType = contentObj.callType || "video";
+                  const callChannel = contentObj.channel || "";
+                  // Use content-based key with 2-second timestamp window
+                  const timestampSeconds = Math.floor(
+                    new Date(msg.createdAt).getTime() / 2000
+                  );
+                  customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
                 } else if (
                   msg.messageType === "products" &&
                   contentObj.products
@@ -748,6 +794,11 @@ export default function ChatInterface({
           }
 
           if (customKey) {
+            // For call messages, don't use timeWindow since customKey already includes timestamp
+            // Use only messageType, customKey, and sender
+            if (msg.messageType === "call") {
+              return `${msg.messageType}-${customKey}-${msg.sender}`;
+            }
             return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
           }
         }
@@ -776,12 +827,31 @@ export default function ChatInterface({
         const key = createMatchKey(msg);
         const existingMsg = existingMessagesByKey.get(key);
         if (existingMsg) {
-          // If a server message exists (not from logs), don't add the log message
+          // If a match key exists, prefer server messages over log messages
           // Server messages have IDs that don't start with "outgoing-" or "incoming-"
-          if (
+          const isExistingServerMsg =
             !existingMsg.id.startsWith("outgoing-") &&
-            !existingMsg.id.startsWith("incoming-")
-          ) {
+            !existingMsg.id.startsWith("incoming-");
+          const isNewLogMsg =
+            msg.id.startsWith("outgoing-") || msg.id.startsWith("incoming-");
+          const isNewServerMsg =
+            !msg.id.startsWith("outgoing-") && !msg.id.startsWith("incoming-");
+
+          // If existing is server and new is log, filter out the new log message
+          if (isExistingServerMsg && isNewLogMsg) {
+            return false;
+          }
+          // If existing is log and new is server, keep the server message
+          // The log message will be replaced in the merge step below
+          if (!isExistingServerMsg && isNewServerMsg) {
+            return true; // Keep server message, log message will be removed in merge
+          }
+          // If both are log messages, filter out the new one (keep the first)
+          if (!isExistingServerMsg && isNewLogMsg) {
+            return false;
+          }
+          // If both are server messages with same key, filter out the new one
+          if (isExistingServerMsg && isNewServerMsg) {
             return false;
           }
         }
@@ -799,9 +869,24 @@ export default function ChatInterface({
       }
 
       // Merge: keep existing messages for this peer + add new unique ones
+      // First, collect all server messages and their match keys
+      const allMessagesTemp = [
+        ...currentPeerMessages,
+        ...uniqueNewMessages,
+      ].filter((msg) => msg !== null && msg.createdAt); // Filter out null messages and messages without createdAt
+
+      const serverMessageKeys = new Set();
+      allMessagesTemp.forEach((msg) => {
+        const isServerMsg =
+          !msg.id.startsWith("outgoing-") && !msg.id.startsWith("incoming-");
+        if (isServerMsg) {
+          const key = createMatchKey(msg);
+          serverMessageKeys.add(key);
+        }
+      });
+
       // Sort by logIndex to maintain chronological order
-      const allMessages = [...currentPeerMessages, ...uniqueNewMessages]
-        .filter((msg) => msg !== null && msg.createdAt) // Filter out null messages and messages without createdAt
+      const allMessages = allMessagesTemp
         .filter((msg, index, self) => {
           // Remove duplicates by ID (first check)
           const idIndex = self.findIndex((m) => m.id === msg.id);
@@ -810,23 +895,20 @@ export default function ChatInterface({
           }
           // Also check by match key to catch any remaining duplicates
           const key = createMatchKey(msg);
-          const keyIndex = self.findIndex((m) => createMatchKey(m) === key);
-          // Keep the first occurrence (prefer server messages over log messages)
-          if (keyIndex !== index) {
-            const existingMsg = self[keyIndex];
-            // If existing is a server message and current is a log message, skip current
-            if (
-              !existingMsg.id.startsWith("outgoing-") &&
-              !existingMsg.id.startsWith("incoming-") &&
-              (msg.id.startsWith("outgoing-") || msg.id.startsWith("incoming-"))
-            ) {
-              return false;
-            }
-            // If both are same type, keep the first one
-            if (keyIndex < index) {
-              return false;
-            }
+          const isLogMsg =
+            msg.id.startsWith("outgoing-") || msg.id.startsWith("incoming-");
+
+          // If this is a log message and we have a server message with the same key, filter it out
+          if (isLogMsg && serverMessageKeys.has(key)) {
+            return false;
           }
+
+          // Remove other duplicates by match key (keep first occurrence)
+          const keyIndex = self.findIndex((m) => createMatchKey(m) === key);
+          if (keyIndex !== index) {
+            return false;
+          }
+
           return true;
         })
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -1063,6 +1145,7 @@ export default function ChatInterface({
           from: userId,
           to: peerId,
           action: "initiate",
+          duration: 0, // Duration in seconds (0 for initiate, actual duration when call ends)
         };
         break;
 
@@ -1929,6 +2012,7 @@ export default function ChatInterface({
           // Only show call messages in chat if:
           // It's an end action with duration > 0 (both users connected)
           // Hide initiate messages - they will only appear after call ends with both users
+          // If only nutritionist or only client was in call, do NOT show the message
           if (customData.action === "initiate") {
             // Don't show initiate messages immediately
             return null;
@@ -1937,7 +2021,8 @@ export default function ChatInterface({
             customData.action === "end" &&
             (!customData.duration || customData.duration <= 0)
           ) {
-            // Don't show call end message if no duration (only one user joined)
+            // Don't show call end message if no duration or duration <= 0
+            // This means only one user (nutritionist or client) was in the call
             return null;
           }
 
@@ -2231,8 +2316,41 @@ export default function ChatInterface({
             } else if (msg.messageType === "file" && msg.fileUrl) {
               customKey = msg.fileUrl;
             } else if (msg.messageType === "call") {
-              // For call messages, use callType and channel if available
-              customKey = `${msg.callType || "video"}-${msg.channel || ""}`;
+              // For call messages, use content-based matching (not ID) so log and server messages match
+              // Extract action and duration from message object or content
+              let callAction = msg.callAction || "";
+              let callDuration =
+                msg.callDurationSeconds != null
+                  ? String(msg.callDurationSeconds)
+                  : "";
+              let callType = msg.callType || "video";
+              let callChannel = msg.channel || "";
+
+              // If fields not on message object, try to extract from content
+              if (
+                !callAction ||
+                !callChannel ||
+                typeof msg.content === "string"
+              ) {
+                try {
+                  const contentObj = JSON.parse(msg.content);
+                  if (contentObj && typeof contentObj === "object") {
+                    if (contentObj.action) callAction = contentObj.action;
+                    if (contentObj.duration != null)
+                      callDuration = String(contentObj.duration);
+                    if (contentObj.callType) callType = contentObj.callType;
+                    if (contentObj.channel) callChannel = contentObj.channel;
+                  }
+                } catch {}
+              }
+
+              // Use content-based key with timestamp in 2-second window to match log/server messages
+              // This allows log and server messages of the same call to match
+              // But different calls (different durations or times > 2s apart) won't match
+              const timestampSeconds = Math.floor(
+                new Date(msg.createdAt).getTime() / 2000
+              );
+              customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
             } else if (msg.messageType === "products" && msg.products) {
               // For products, use the first product ID
               customKey = msg.products[0]?.id || "";
@@ -2250,9 +2368,19 @@ export default function ChatInterface({
                   } else if (msg.messageType === "file" && contentObj.url) {
                     customKey = contentObj.url;
                   } else if (msg.messageType === "call") {
-                    customKey = `${contentObj.callType || "video"}-${
-                      contentObj.channel || ""
-                    }`;
+                    // For call messages from content, use content-based matching
+                    const callAction = contentObj.action || "";
+                    const callDuration =
+                      contentObj.duration != null
+                        ? String(contentObj.duration)
+                        : "";
+                    const callType = contentObj.callType || "video";
+                    const callChannel = contentObj.channel || "";
+                    // Use content-based key with 2-second timestamp window
+                    const timestampSeconds = Math.floor(
+                      new Date(msg.createdAt).getTime() / 2000
+                    );
+                    customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
                   } else if (
                     msg.messageType === "products" &&
                     contentObj.products
@@ -2266,6 +2394,11 @@ export default function ChatInterface({
             }
 
             if (customKey) {
+              // For call messages, don't use timeWindow since customKey already includes timestamp
+              // Use only messageType, customKey, and sender
+              if (msg.messageType === "call") {
+                return `${msg.messageType}-${customKey}-${msg.sender}`;
+              }
               return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
             }
           }
@@ -2317,12 +2450,24 @@ export default function ChatInterface({
         );
 
         // Merge: keep updated existing messages + add only unmatched fetched ones
-        // Combine and sort by timestamp to maintain chronological order
-        const allMessages = [
+        // First, collect all server messages and their match keys
+        const allMessagesTemp = [
           ...updatedExistingMessages,
           ...unmatchedFetchedMessages,
-        ]
-          .filter((msg) => msg !== null && msg.createdAt) // Filter out null messages and messages without createdAt
+        ].filter((msg) => msg !== null && msg.createdAt); // Filter out null messages and messages without createdAt
+
+        const serverMessageKeys = new Set();
+        allMessagesTemp.forEach((msg) => {
+          const isServerMsg =
+            !msg.id.startsWith("outgoing-") && !msg.id.startsWith("incoming-");
+          if (isServerMsg) {
+            const key = createMatchKey(msg);
+            serverMessageKeys.add(key);
+          }
+        });
+
+        // Combine and sort by timestamp to maintain chronological order
+        const allMessages = allMessagesTemp
           .filter((msg, index, self) => {
             // Remove duplicates by ID (first check)
             const idIndex = self.findIndex((m) => m.id === msg.id);
@@ -2331,24 +2476,20 @@ export default function ChatInterface({
             }
             // Also check by match key to catch any remaining duplicates
             const key = createMatchKey(msg);
-            const keyIndex = self.findIndex((m) => createMatchKey(m) === key);
-            // Keep the first occurrence (prefer server messages over log messages)
-            if (keyIndex !== index) {
-              const existingMsg = self[keyIndex];
-              // If existing is a server message and current is a log message, skip current
-              if (
-                !existingMsg.id.startsWith("outgoing-") &&
-                !existingMsg.id.startsWith("incoming-") &&
-                (msg.id.startsWith("outgoing-") ||
-                  msg.id.startsWith("incoming-"))
-              ) {
-                return false;
-              }
-              // If both are same type, keep the first one
-              if (keyIndex < index) {
-                return false;
-              }
+            const isLogMsg =
+              msg.id.startsWith("outgoing-") || msg.id.startsWith("incoming-");
+
+            // If this is a log message and we have a server message with the same key, filter it out
+            if (isLogMsg && serverMessageKeys.has(key)) {
+              return false;
             }
+
+            // Remove other duplicates by match key (keep first occurrence)
+            const keyIndex = self.findIndex((m) => createMatchKey(m) === key);
+            if (keyIndex !== index) {
+              return false;
+            }
+
             return true;
           })
           .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -2455,7 +2596,41 @@ export default function ChatInterface({
             } else if (msg.messageType === "file" && msg.fileUrl) {
               customKey = msg.fileUrl;
             } else if (msg.messageType === "call") {
-              customKey = `${msg.callType || "video"}-${msg.channel || ""}`;
+              // For call messages, use content-based matching (not ID) so log and server messages match
+              // Extract action and duration from message object or content
+              let callAction = msg.callAction || "";
+              let callDuration =
+                msg.callDurationSeconds != null
+                  ? String(msg.callDurationSeconds)
+                  : "";
+              let callType = msg.callType || "video";
+              let callChannel = msg.channel || "";
+
+              // If fields not on message object, try to extract from content
+              if (
+                !callAction ||
+                !callChannel ||
+                typeof msg.content === "string"
+              ) {
+                try {
+                  const contentObj = JSON.parse(msg.content);
+                  if (contentObj && typeof contentObj === "object") {
+                    if (contentObj.action) callAction = contentObj.action;
+                    if (contentObj.duration != null)
+                      callDuration = String(contentObj.duration);
+                    if (contentObj.callType) callType = contentObj.callType;
+                    if (contentObj.channel) callChannel = contentObj.channel;
+                  }
+                } catch {}
+              }
+
+              // Use content-based key with timestamp in 2-second window to match log/server messages
+              // This allows log and server messages of the same call to match
+              // But different calls (different durations or times > 2s apart) won't match
+              const timestampSeconds = Math.floor(
+                new Date(msg.createdAt).getTime() / 2000
+              );
+              customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
             } else if (msg.messageType === "products" && msg.products) {
               customKey = msg.products[0]?.id || "";
             }
@@ -2472,9 +2647,19 @@ export default function ChatInterface({
                   } else if (msg.messageType === "file" && contentObj.url) {
                     customKey = contentObj.url;
                   } else if (msg.messageType === "call") {
-                    customKey = `${contentObj.callType || "video"}-${
-                      contentObj.channel || ""
-                    }`;
+                    // For call messages from content, use content-based matching
+                    const callAction = contentObj.action || "";
+                    const callDuration =
+                      contentObj.duration != null
+                        ? String(contentObj.duration)
+                        : "";
+                    const callType = contentObj.callType || "video";
+                    const callChannel = contentObj.channel || "";
+                    // Use content-based key with 2-second timestamp window
+                    const timestampSeconds = Math.floor(
+                      new Date(msg.createdAt).getTime() / 2000
+                    );
+                    customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
                   } else if (
                     msg.messageType === "products" &&
                     contentObj.products
@@ -2488,6 +2673,11 @@ export default function ChatInterface({
             }
 
             if (customKey) {
+              // For call messages, don't use timeWindow since customKey already includes timestamp
+              // Use only messageType, customKey, and sender
+              if (msg.messageType === "call") {
+                return `${msg.messageType}-${customKey}-${msg.sender}`;
+              }
               return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
             }
           }

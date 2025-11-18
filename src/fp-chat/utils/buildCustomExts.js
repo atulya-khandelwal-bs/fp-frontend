@@ -73,7 +73,7 @@ export function buildCustomExts(payload) {
         from: payload.from || "",
         to: payload.to || "",
         action: payload.action || "initiate", // "initiate", "accept", "reject", "end"
-        duration: payload.duration, // in seconds (optional)
+        duration: payload.duration !== undefined ? payload.duration : 0, // in seconds (0 for initiate, actual duration when call ends)
       };
 
     default:

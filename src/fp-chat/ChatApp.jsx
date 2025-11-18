@@ -502,6 +502,7 @@ function ChatApp() {
       from: userId,
       to: peerId,
       action: "initiate",
+      duration: 0, // Duration in seconds (0 for initiate, actual duration when call ends)
     });
 
     try {
@@ -559,16 +560,17 @@ function ChatApp() {
 
   // Handle end call
   const handleEndCall = async (callInfo = null) => {
-    // If call info is provided and both users were connected, send call end message
+    // Only send call end message if BOTH users were connected (nutritionist AND client)
+    // If only one user (nutritionist) was in the call, do NOT send the message
     if (
       callInfo &&
-      callInfo.bothUsersConnected &&
+      callInfo.bothUsersConnected === true &&
       callInfo.duration > 0 &&
       activeCall
     ) {
       try {
         // Send call end message with duration
-        const callEndMessage = JSON.stringify({
+        const callEndPayload = {
           type: "call",
           callType: activeCall.callType || "video",
           channel: activeCall.channel,
@@ -576,7 +578,16 @@ function ChatApp() {
           to: activeCall.peerId,
           action: "end",
           duration: callInfo.duration, // Duration in seconds
-        });
+        };
+
+        const callEndMessage = JSON.stringify(callEndPayload);
+
+        // Console log the payload being sent to backend
+        console.log(
+          "📞 Call End Message - Sending to backend (both users connected):",
+          callEndPayload
+        );
+        console.log("📞 Call End Message - JSON string:", callEndMessage);
 
         // Send the call end message
         await handleSendMessage(callEndMessage);
@@ -586,6 +597,26 @@ function ChatApp() {
         console.error("Error sending call end message:", error);
         addLog(`Failed to send call end message: ${error.message}`);
       }
+    } else {
+      // Log when message is NOT being sent (for debugging)
+      console.log("📞 Call End Message - NOT sending (conditions not met):", {
+        hasCallInfo: !!callInfo,
+        bothUsersConnected: callInfo?.bothUsersConnected,
+        duration: callInfo?.duration,
+        hasActiveCall: !!activeCall,
+        reason: !callInfo
+          ? "No call info"
+          : callInfo.bothUsersConnected !== true
+          ? "Both users not connected (only nutritionist or only client)"
+          : callInfo.duration <= 0
+          ? "Duration is 0 or negative"
+          : !activeCall
+          ? "No active call"
+          : "Unknown reason",
+      });
+      addLog(
+        `Call ended but message not sent (only one user in call or duration is 0)`
+      );
     }
 
     // Clear call state
