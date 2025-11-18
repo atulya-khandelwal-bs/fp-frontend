@@ -97,6 +97,26 @@ export const Basics = ({
   const { localCameraTrack } = useLocalCameraTrack(cameraOn && !isAudioCall);
   const remoteUsers = useRemoteUsers();
 
+  // Track call start time and remote user connection
+  const callStartTimeRef = useRef(null);
+  const remoteUserEverJoinedRef = useRef(false);
+
+  // Track call start time when nutritionist connects
+  useEffect(() => {
+    if (isConnected && !callStartTimeRef.current) {
+      callStartTimeRef.current = Date.now();
+      console.log("Call started at:", new Date(callStartTimeRef.current));
+    }
+  }, [isConnected]);
+
+  // Track if remote user ever joined
+  useEffect(() => {
+    if (remoteUsers.length > 0) {
+      remoteUserEverJoinedRef.current = true;
+      console.log("Remote user joined. Both users are connected.");
+    }
+  }, [remoteUsers.length]);
+
   // Reset mainUserId when number of users changes or remote user leaves
   useEffect(() => {
     if (remoteUsers.length !== 1) {
@@ -1115,7 +1135,33 @@ export const Basics = ({
               className="control-button danger"
               onClick={() => {
                 if (calling && onEndCall) {
-                  onEndCall();
+                  // Calculate call duration and pass info to onEndCall
+                  const callEndTime = Date.now();
+                  const callStartTime = callStartTimeRef.current;
+                  const duration = callStartTime
+                    ? Math.floor((callEndTime - callStartTime) / 1000)
+                    : 0; // Duration in seconds
+                  const bothUsersConnected = remoteUserEverJoinedRef.current;
+
+                  console.log("Ending call with:", {
+                    duration,
+                    bothUsersConnected,
+                    callStartTime: callStartTime
+                      ? new Date(callStartTime)
+                      : null,
+                    callEndTime: new Date(callEndTime),
+                  });
+
+                  onEndCall({
+                    duration,
+                    bothUsersConnected,
+                    callStartTime,
+                    callEndTime,
+                  });
+
+                  // Reset tracking refs
+                  callStartTimeRef.current = null;
+                  remoteUserEverJoinedRef.current = false;
                 } else {
                   setCalling((a) => !a);
                 }

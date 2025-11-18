@@ -626,7 +626,7 @@
   color: white;
   cursor: pointer;
   border-radius: 50%;
-  width: 64px;
+  min-width: 64px;
   height: 64px;
   transition: all 0.2s ease;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
@@ -648,8 +648,7 @@
   background-color: #ef4444;
   color: white;
   border-radius: 8px;
-  width: "102.4000015258789px";
-  /* min-width: 60px; */
+  width: 102.4000015258789px;
   height: "64px";
   padding: 0.75rem 1.25rem;
 }

@@ -7,7 +7,7 @@ import ChatInterface from "./components/ChatInterface.jsx";
 import LogPanel from "./components/LogPanel.jsx";
 import UserDetails from "./components/UserDetails.jsx";
 import CallApp from "../fp-call/CallApp.jsx";
-import CallNotification from "./components/CallNotification.jsx";
+// import CallNotification from "./components/CallNotification.jsx";
 import AgoraChat from "agora-chat";
 import { useChatClient } from "./hooks/useChatClient.js";
 import config from "../common/config.js";
@@ -558,7 +558,37 @@ function ChatApp() {
   };
 
   // Handle end call
-  const handleEndCall = () => {
+  const handleEndCall = async (callInfo = null) => {
+    // If call info is provided and both users were connected, send call end message
+    if (
+      callInfo &&
+      callInfo.bothUsersConnected &&
+      callInfo.duration > 0 &&
+      activeCall
+    ) {
+      try {
+        // Send call end message with duration
+        const callEndMessage = JSON.stringify({
+          type: "call",
+          callType: activeCall.callType || "video",
+          channel: activeCall.channel,
+          from: userId,
+          to: activeCall.peerId,
+          action: "end",
+          duration: callInfo.duration, // Duration in seconds
+        });
+
+        // Send the call end message
+        await handleSendMessage(callEndMessage);
+
+        addLog(`Call ended. Duration: ${callInfo.duration}s`);
+      } catch (error) {
+        console.error("Error sending call end message:", error);
+        addLog(`Failed to send call end message: ${error.message}`);
+      }
+    }
+
+    // Clear call state
     setActiveCall(null);
     setIncomingCall(null);
     // Clear any call message that might be in the input box
@@ -816,13 +846,13 @@ function ChatApp() {
   return (
     <div className="app-container">
       {/* Call Notification */}
-      {incomingCall && (
+      {/* {incomingCall && (
         <CallNotification
           from={incomingCall.from}
           onAccept={handleAcceptCall}
           onReject={handleRejectCall}
         />
-      )}
+      )} */}
       {!isLoggedIn ? (
         <>
           <Header />

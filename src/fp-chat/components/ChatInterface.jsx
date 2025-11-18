@@ -280,8 +280,8 @@ export default function ChatInterface({
       return false;
     });
 
-    const newMessages = filteredLogs.map(
-      ({ log, logHash, logIndex, timestamp }) => {
+    const newMessages = filteredLogs
+      .map(({ log, logHash, logIndex, timestamp }) => {
         const isOutgoing = log.includes("→");
         const messageTime =
           timestamp instanceof Date ? timestamp : new Date(timestamp);
@@ -393,6 +393,22 @@ export default function ChatInterface({
                     messageContent = "Meal plan updated";
                     break;
                   case "call":
+                    // Only show call messages if:
+                    // It's an end action with duration > 0 (both users connected)
+                    // Hide initiate messages - they will only appear after call ends with both users
+                    if (obj.action === "initiate") {
+                      // Don't show initiate messages immediately
+                      messageType = "hidden"; // Mark as hidden, will be filtered out
+                      break;
+                    }
+                    if (
+                      obj.action === "end" &&
+                      (!obj.duration || obj.duration <= 0)
+                    ) {
+                      // Don't show call end message if no duration (only one user joined)
+                      messageType = "hidden"; // Mark as hidden, will be filtered out
+                      break;
+                    }
                     messageType = "call";
                     callType = obj.callType || "video";
                     callDurationSeconds = obj.duration ?? null;
@@ -428,6 +444,11 @@ export default function ChatInterface({
             } catch {
               // not JSON -> keep as text
             }
+          }
+
+          // Filter out hidden call messages (only one user joined)
+          if (messageType === "hidden") {
+            return null;
           }
 
           return {
@@ -562,6 +583,22 @@ export default function ChatInterface({
                     messageContent = "Meal plan updated";
                     break;
                   case "call":
+                    // Only show call messages if:
+                    // It's an end action with duration > 0 (both users connected)
+                    // Hide initiate messages - they will only appear after call ends with both users
+                    if (obj.action === "initiate") {
+                      // Don't show initiate messages immediately
+                      messageType = "hidden"; // Mark as hidden, will be filtered out
+                      break;
+                    }
+                    if (
+                      obj.action === "end" &&
+                      (!obj.duration || obj.duration <= 0)
+                    ) {
+                      // Don't show call end message if no duration (only one user joined)
+                      messageType = "hidden"; // Mark as hidden, will be filtered out
+                      break;
+                    }
                     messageType = "call";
                     callType = obj.callType || "video";
                     callDurationSeconds = obj.duration ?? null;
@@ -599,6 +636,11 @@ export default function ChatInterface({
             }
           }
 
+          // Filter out hidden call messages (only one user joined)
+          if (messageType === "hidden") {
+            return null;
+          }
+
           return {
             id: `incoming-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
             sender,
@@ -629,8 +671,8 @@ export default function ChatInterface({
             peerId, // Store peerId for conversation tracking
           };
         }
-      }
-    );
+      })
+      .filter((msg) => msg !== null); // Filter out null messages (hidden call messages)
 
     // Only show messages for the current conversation (peerId)
     setMessages((prev) => {
@@ -759,6 +801,7 @@ export default function ChatInterface({
       // Merge: keep existing messages for this peer + add new unique ones
       // Sort by logIndex to maintain chronological order
       const allMessages = [...currentPeerMessages, ...uniqueNewMessages]
+        .filter((msg) => msg !== null && msg.createdAt) // Filter out null messages and messages without createdAt
         .filter((msg, index, self) => {
           // Remove duplicates by ID (first check)
           const idIndex = self.findIndex((m) => m.id === msg.id);
@@ -1883,6 +1926,21 @@ export default function ChatInterface({
             fileSizeBytes: customData.size,
           };
         } else if (type === "call") {
+          // Only show call messages in chat if:
+          // It's an end action with duration > 0 (both users connected)
+          // Hide initiate messages - they will only appear after call ends with both users
+          if (customData.action === "initiate") {
+            // Don't show initiate messages immediately
+            return null;
+          }
+          if (
+            customData.action === "end" &&
+            (!customData.duration || customData.duration <= 0)
+          ) {
+            // Don't show call end message if no duration (only one user joined)
+            return null;
+          }
+
           return {
             ...baseMessage,
             content,
@@ -1890,6 +1948,7 @@ export default function ChatInterface({
             callType: customData.callType || "video",
             channel: customData.channel,
             callAction: customData.action,
+            callDurationSeconds: customData.duration || null,
           };
         } else if (type === "products") {
           return {
@@ -2103,7 +2162,9 @@ export default function ChatInterface({
       const convertedMessages = oldMessages.map((msg) =>
         convertApiMessageToFormat(msg)
       );
-      const formatted = convertedMessages.map((msg) => formatMessage(msg));
+      const formatted = convertedMessages
+        .map((msg) => formatMessage(msg))
+        .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages)
 
       // Find the most recent message from history to update last message
       if (formatted.length > 0 && onUpdateLastMessageFromHistory) {
@@ -2261,6 +2322,7 @@ export default function ChatInterface({
           ...updatedExistingMessages,
           ...unmatchedFetchedMessages,
         ]
+          .filter((msg) => msg !== null && msg.createdAt) // Filter out null messages and messages without createdAt
           .filter((msg, index, self) => {
             // Remove duplicates by ID (first check)
             const idIndex = self.findIndex((m) => m.id === msg.id);
@@ -2353,7 +2415,9 @@ export default function ChatInterface({
       const convertedMessages = newMessages.map((msg) =>
         convertApiMessageToFormat(msg)
       );
-      const formatted = convertedMessages.map((msg) => formatMessage(msg));
+      const formatted = convertedMessages
+        .map((msg) => formatMessage(msg))
+        .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages)
 
       // 🟡 Prevent scroll-to-bottom behavior
       isLoadingHistoryRef.current = true;
