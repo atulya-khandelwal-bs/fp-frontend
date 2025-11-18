@@ -794,7 +794,7 @@ export default function ChatTab({
                           >
                             {msg.callType === "video"
                               ? "Video call"
-                              : "Voice call"}
+                              : "Audio call"}
                           </span>
                           {msg.callDurationSeconds != null && (
                             <span
@@ -970,7 +970,7 @@ export default function ChatTab({
                                       >
                                         {obj.callType === "video"
                                           ? "Video call"
-                                          : "Voice call"}
+                                          : "Audio call"}
                                       </span>
                                       {obj.duration != null && (
                                         <span

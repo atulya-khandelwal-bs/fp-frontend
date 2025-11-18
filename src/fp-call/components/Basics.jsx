@@ -37,6 +37,7 @@ export const Basics = ({
   channel: propChannel,
   isInitiator,
   onEndCall,
+  isAudioCall = false,
 }) => {
   const [calling, setCalling] = useState(false);
   const isConnected = useIsConnected();
@@ -65,7 +66,7 @@ export const Basics = ({
   const [pendingJoin, setPendingJoin] = useState(false);
 
   const [micOn, setMic] = useState(true);
-  const [cameraOn, setCamera] = useState(true);
+  const [cameraOn, setCamera] = useState(!isAudioCall);
   const [virtualBackground, setVirtualBackground] = useState(false);
   const [selectedBackground, setSelectedBackground] = useState(null);
   const [showBackgroundOptions, setShowBackgroundOptions] = useState(false);
@@ -93,7 +94,7 @@ export const Basics = ({
   const [mainUserId, setMainUserId] = useState(null);
 
   const { localMicrophoneTrack } = useLocalMicrophoneTrack(micOn);
-  const { localCameraTrack } = useLocalCameraTrack(cameraOn);
+  const { localCameraTrack } = useLocalCameraTrack(cameraOn && !isAudioCall);
   const remoteUsers = useRemoteUsers();
 
   // Reset mainUserId when number of users changes or remote user leaves
@@ -142,7 +143,7 @@ export const Basics = ({
   }, []);
 
   useEffect(() => {
-    if (!localCameraTrack) return;
+    if (!localCameraTrack || isAudioCall) return;
 
     const setupVirtualBackground = async () => {
       try {
@@ -416,7 +417,11 @@ export const Basics = ({
     },
     calling
   );
-  usePublish([localMicrophoneTrack, localCameraTrack]);
+  usePublish(
+    isAudioCall
+      ? [localMicrophoneTrack]
+      : [localMicrophoneTrack, localCameraTrack]
+  );
 
   // Network monitoring using Agora client events
   // useEffect(() => {
@@ -666,7 +671,9 @@ export const Basics = ({
               }
             }}
           >
-            <h1 className="call-title">Video Call</h1>
+            <h1 className="call-title">
+              {isAudioCall ? "Audio Call" : "Video Call"}
+            </h1>
             <div className="participant-count">
               {remoteUsers.length + 1} participant
               {remoteUsers.length !== 0 ? "s" : ""}
@@ -747,7 +754,11 @@ export const Basics = ({
                           borderRadius: "8px",
                         }}
                       >
-                        {cameraOn ? "Waiting for camera..." : "Camera off"}
+                        {isAudioCall
+                          ? "Audio Call"
+                          : cameraOn
+                          ? "Waiting for camera..."
+                          : "Camera off"}
                       </div>
                     )}
                   </div>
@@ -894,7 +905,11 @@ export const Basics = ({
                           borderRadius: "8px",
                         }}
                       >
-                        {cameraOn ? "Waiting for camera..." : "Camera off"}
+                        {isAudioCall
+                          ? "Audio Call"
+                          : cameraOn
+                          ? "Waiting for camera..."
+                          : "Camera off"}
                       </div>
                     )}
                   </div>
@@ -991,7 +1006,11 @@ export const Basics = ({
                           borderRadius: "8px",
                         }}
                       >
-                        {cameraOn ? "Waiting for camera..." : "Camera off"}
+                        {isAudioCall
+                          ? "Audio Call"
+                          : cameraOn
+                          ? "Waiting for camera..."
+                          : "Camera off"}
                       </div>
                     )}
                   </div>
@@ -1079,15 +1098,17 @@ export const Basics = ({
             </button>
 
             {/* 2. Video Camera Control */}
-            <button
-              className={`control-button ${!cameraOn ? "active" : ""}`}
-              onClick={() => setCamera((a) => !a)}
-              title={cameraOn ? "Stop video" : "Start video"}
-            >
-              <div className="control-icon">
-                {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
-              </div>
-            </button>
+            {!isAudioCall && (
+              <button
+                className={`control-button ${!cameraOn ? "active" : ""}`}
+                onClick={() => setCamera((a) => !a)}
+                title={cameraOn ? "Stop video" : "Start video"}
+              >
+                <div className="control-icon">
+                  {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
+                </div>
+              </button>
+            )}
 
             {/* 3. End Call (Red Rectangular Button) */}
             <button
@@ -1123,59 +1144,41 @@ export const Basics = ({
             </button>
 
             {/* 5. More Options */}
-            <div style={{ position: "relative" }}>
-              <button
-                className="control-button more-options-button"
-                onClick={() => setShowMoreOptions((prev) => !prev)}
-                title="More options"
-              >
-                <div className="control-icon">
-                  <Ellipsis size={18} />
-                </div>
-              </button>
-
-              {/* More Options Menu */}
-              {showMoreOptions && (
-                <div
-                  className="more-options-menu"
-                  style={{
-                    position: "absolute",
-                    bottom: "100%",
-                    right: "0",
-                    marginBottom: "0.5rem",
-                    background: "white",
-                    borderRadius: "8px",
-                    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-                    padding: "0.5rem",
-                    zIndex: 1000,
-                    display: "flex",
-                    gap: "0.5rem",
-                    alignItems: "center",
-                  }}
+            {!isAudioCall && (
+              <div style={{ position: "relative" }}>
+                <button
+                  className="control-button more-options-button"
+                  onClick={() => setShowMoreOptions((prev) => !prev)}
+                  title="More options"
                 >
-                  <button
-                    className="control-button"
-                    onClick={() => {
-                      toggleVirtualBackground();
-                      setShowMoreOptions(false);
-                    }}
+                  <div className="control-icon">
+                    <Ellipsis size={18} />
+                  </div>
+                </button>
+
+                {/* More Options Menu */}
+                {showMoreOptions && (
+                  <div
+                    className="more-options-menu"
                     style={{
-                      width: "64px",
-                      height: "64px",
-                      borderRadius: "50%",
-                      justifyContent: "center",
+                      position: "absolute",
+                      bottom: "100%",
+                      right: "0",
+                      marginBottom: "0.5rem",
+                      background: "white",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                      padding: "0.5rem",
+                      zIndex: 1000,
+                      display: "flex",
+                      gap: "0.5rem",
+                      alignItems: "center",
                     }}
-                    title="Virtual Background"
                   >
-                    <div className="control-icon">
-                      <Sparkles size={18} />
-                    </div>
-                  </button>
-                  {virtualBackground && (
                     <button
                       className="control-button"
                       onClick={() => {
-                        setShowBackgroundOptions(!showBackgroundOptions);
+                        toggleVirtualBackground();
                         setShowMoreOptions(false);
                       }}
                       style={{
@@ -1184,16 +1187,36 @@ export const Basics = ({
                         borderRadius: "50%",
                         justifyContent: "center",
                       }}
-                      title="Background Options"
+                      title="Virtual Background"
                     >
                       <div className="control-icon">
-                        <Palette size={18} />
+                        <Sparkles size={18} />
                       </div>
                     </button>
-                  )}
-                </div>
-              )}
-            </div>
+                    {virtualBackground && (
+                      <button
+                        className="control-button"
+                        onClick={() => {
+                          setShowBackgroundOptions(!showBackgroundOptions);
+                          setShowMoreOptions(false);
+                        }}
+                        style={{
+                          width: "64px",
+                          height: "64px",
+                          borderRadius: "50%",
+                          justifyContent: "center",
+                        }}
+                        title="Background Options"
+                      >
+                        <div className="control-icon">
+                          <Palette size={18} />
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Background Options Panel */}

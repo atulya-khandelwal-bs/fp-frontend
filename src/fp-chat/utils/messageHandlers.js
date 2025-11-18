@@ -132,7 +132,7 @@ export function createMessageHandlers({
             else if (t === "text") preview = obj.body ?? "";
             else if (t === "call") {
               // Handle call messages - generate preview based on callType
-              const callType = obj.callType === "video" ? "Video" : "Voice";
+              const callType = obj.callType === "video" ? "Video" : "Audio";
               preview = `${callType} call`;
               // Handle incoming call notification if action is initiate
               if (obj.action === "initiate" && handleIncomingCall) {
@@ -147,6 +147,7 @@ export function createMessageHandlers({
                     from: obj.from,
                     channel: obj.channel,
                     callId: obj.channel,
+                    callType: obj.callType || "video", // Default to video if not specified
                   });
                 } else {
                   console.warn("Call message missing channel or from:", obj);
@@ -434,7 +435,7 @@ export function createMessageHandlers({
           else if (t === "call") {
             // Handle call messages - generate preview based on callType
             const callType =
-              paramsData.callType === "video" ? "Video" : "Voice";
+              paramsData.callType === "video" ? "Video" : "Audio";
             preview = `${callType} call`;
             // Handle incoming call notification if action is initiate
             if (paramsData.action === "initiate" && handleIncomingCall) {
@@ -447,6 +448,7 @@ export function createMessageHandlers({
                   from: paramsData.from,
                   channel: paramsData.channel,
                   callId: paramsData.channel,
+                  callType: paramsData.callType || "video", // Default to video if not specified
                 });
               }
             }

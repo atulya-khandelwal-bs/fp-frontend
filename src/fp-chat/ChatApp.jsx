@@ -48,8 +48,8 @@ function ChatApp() {
   const [coachInfo, setCoachInfo] = useState({ name: "", profilePhoto: "" }); // Store coach name and profile photo
 
   // Call state management
-  const [activeCall, setActiveCall] = useState(null); // { userId, peerId, channel, isInitiator }
-  const [incomingCall, setIncomingCall] = useState(null); // { from, channel, callId }
+  const [activeCall, setActiveCall] = useState(null); // { userId, peerId, channel, isInitiator, callType }
+  const [incomingCall, setIncomingCall] = useState(null); // { from, channel, callId, callType }
 
   // 🔹 Global message ID tracker to prevent duplicates
   const isSendingRef = useRef(false);
@@ -277,7 +277,7 @@ function ChatApp() {
               return "New nutritionist assigned";
             if (t === "products") return "Products";
             if (t === "call")
-              return `${parsed.callType === "video" ? "Video" : "Voice"} call`;
+              return `${parsed.callType === "video" ? "Video" : "Audio"} call`;
             if (t === "text") {
               // API uses "message" field for text messages
               return parsed.message || parsed.body || "";
@@ -483,20 +483,21 @@ function ChatApp() {
     setShowChatOnMobile(false);
   };
 
-  // Handle video call initiation
-  const handleInitiateCall = async () => {
+  // Handle call initiation (video or audio)
+  const handleInitiateCall = async (callType = "video") => {
     if (!peerId || !userId) {
       addLog("Cannot initiate call: Missing user or peer ID");
       return;
     }
 
-    // Generate a unique channel name for this call
-    const channel = `call-${userId}-${peerId}-${Date.now()}`;
+    // Generate channel name using format: fp_rtc_call_user_USER_ID
+    // USER_ID is the user's ID (peerId), not the coach's ID
+    const channel = `fp_rtc_call_user_${peerId}`;
 
     // Send a custom message to notify the other user
     const callMessage = JSON.stringify({
       type: "call",
-      callType: "video",
+      callType: callType, // "video" or "audio"
       channel: channel,
       from: userId,
       to: peerId,
@@ -516,12 +517,13 @@ function ChatApp() {
         peerId,
         channel,
         isInitiator: true,
+        callType: callType,
         localUserName: userId, // You can get actual name from user profile if available
         peerName: selectedContact?.name || peerId,
         peerAvatar: selectedContact?.avatar,
       });
 
-      addLog(`Initiating video call with ${peerId}`);
+      addLog(`Initiating ${callType} call with ${peerId}`);
     } catch (error) {
       console.error("Error initiating call:", error);
       addLog(`Failed to initiate call: ${error.message}`);
@@ -542,6 +544,7 @@ function ChatApp() {
       peerId: incomingCall.from,
       channel: incomingCall.channel,
       isInitiator: false,
+      callType: incomingCall.callType || "video", // Default to video if not specified
       localUserName: userId, // You can get actual name from user profile if available
       peerName: contact?.name || incomingCall.from,
       peerAvatar: contact?.avatar,
@@ -574,7 +577,7 @@ function ChatApp() {
     } else if (formattedMsg.messageType === "audio") {
       return "Audio";
     } else if (formattedMsg.messageType === "call") {
-      return `${formattedMsg.callType === "video" ? "Video" : "Voice"} call`;
+      return `${formattedMsg.callType === "video" ? "Video" : "Audio"} call`;
     } else if (formattedMsg.messageType === "text") {
       // For text messages, try to parse if it's JSON (custom message)
       try {
@@ -590,7 +593,7 @@ function ChatApp() {
             return "New nutritionist assigned";
           if (t === "products") return "Products";
           if (t === "call")
-            return `${parsed.callType === "video" ? "Video" : "Voice"} call`;
+            return `${parsed.callType === "video" ? "Video" : "Audio"} call`;
         }
       } catch {
         // Not JSON, use content as-is
@@ -756,7 +759,7 @@ function ChatApp() {
         else if (t === "products") preview = "Products";
         else if (t === "call")
           preview = `${
-            parsedPayload.callType === "video" ? "Video" : "Voice"
+            parsedPayload.callType === "video" ? "Video" : "Audio"
           } call`;
       }
 
@@ -801,6 +804,7 @@ function ChatApp() {
           channel={activeCall.channel}
           isInitiator={activeCall.isInitiator}
           onEndCall={handleEndCall}
+          isAudioCall={activeCall.callType === "audio"}
           localUserName={activeCall.localUserName}
           peerName={activeCall.peerName}
           peerAvatar={activeCall.peerAvatar}

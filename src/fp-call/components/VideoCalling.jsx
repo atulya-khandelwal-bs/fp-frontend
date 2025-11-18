@@ -9,22 +9,27 @@ export const VideoCalling = ({
   channel,
   isInitiator,
   onEndCall,
+  isAudioCall = false,
 }) => {
   const client = AgoraRTC.createClient({
     mode: "rtc",
     codec: "vp8",
     // Disable analytics to prevent statscollector errors
     enableAudio: true,
-    enableVideo: true,
+    enableVideo: !isAudioCall,
   });
-  const extension = new VirtualBackgroundExtension();
 
-  if (!extension.checkCompatibility()) {
-    // The current browser does not support the virtual background plugin, you can stop executing the subsequent logic
-    console.error("Does not support Virtual Background!");
+  // Only register virtual background extension for video calls
+  if (!isAudioCall) {
+    const extension = new VirtualBackgroundExtension();
+
+    if (!extension.checkCompatibility()) {
+      // The current browser does not support the virtual background plugin, you can stop executing the subsequent logic
+      console.error("Does not support Virtual Background!");
+    }
+    // Register plugin
+    AgoraRTC.registerExtensions([extension]);
   }
-  // Register plugin
-  AgoraRTC.registerExtensions([extension]);
 
   // Suppress Agora analytics errors (they don't affect functionality)
   useEffect(() => {
@@ -104,6 +109,7 @@ export const VideoCalling = ({
         channel={channel}
         isInitiator={isInitiator}
         onEndCall={onEndCall}
+        isAudioCall={isAudioCall}
       />
     </AgoraRTCProvider>
   );

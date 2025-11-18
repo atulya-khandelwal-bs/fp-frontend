@@ -394,11 +394,11 @@ export default function ChatInterface({
                     break;
                   case "call":
                     messageType = "call";
-                    callType = obj.callType || "voice";
+                    callType = obj.callType || "video";
                     callDurationSeconds = obj.duration ?? null;
                     callChannel = obj.channel || null;
                     messageContent = `${
-                      callType === "video" ? "Video" : "Voice"
+                      callType === "video" ? "Video" : "Audio"
                     } call`;
                     break;
                   default: {
@@ -456,7 +456,7 @@ export default function ChatInterface({
               minute: "2-digit",
             }),
             isIncoming: false, // Outgoing message - right side
-            avatar: config.defaults.userAvatar,
+            avatar: coachInfo?.profilePhoto || config.defaults.userAvatar,
             peerId, // Store peerId for conversation tracking
           };
         } else {
@@ -563,11 +563,11 @@ export default function ChatInterface({
                     break;
                   case "call":
                     messageType = "call";
-                    callType = obj.callType || "voice";
+                    callType = obj.callType || "video";
                     callDurationSeconds = obj.duration ?? null;
                     callChannel = obj.channel || null;
                     messageContent = `${
-                      callType === "video" ? "Video" : "Voice"
+                      callType === "video" ? "Video" : "Audio"
                     } call`;
                     break;
                   default: {

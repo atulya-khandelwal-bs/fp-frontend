@@ -432,6 +432,14 @@ input {
   gap: 0.25rem;
 }
 
+.message-wrapper.incoming .message-content {
+  align-items: flex-start;
+}
+
+.message-wrapper.outgoing .message-content {
+  align-items: flex-end;
+}
+
 .message-label {
   font-size: 0.75rem;
   color: var(--red-accent);
@@ -442,7 +450,7 @@ input {
 .message-sender-name {
   font-size: 0.75rem;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 1000;
   margin-bottom: 0.5rem;
   padding-bottom: 0.25rem;
 }
@@ -505,6 +513,14 @@ input {
   font-size: 0.875rem;
   line-height: 1.4;
   color: var(--text);
+}
+
+.message-wrapper.incoming .message-text {
+  text-align: left;
+}
+
+.message-wrapper.outgoing .message-text {
+  text-align: right;
 }
 
 .message-time {

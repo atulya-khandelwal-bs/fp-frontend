@@ -84,7 +84,7 @@ export default function ConversationList({
         return "New nutritionist assigned";
       if (t === "products") return "Products";
       if (t === "call")
-        return `${parsed.callType === "video" ? "Video" : "Voice"} call`;
+        return `${parsed.callType === "video" ? "Video" : "Audio"} call`;
       if (t === "text") {
         // API uses "message" field for text messages
         return parsed.message || parsed.body || "";

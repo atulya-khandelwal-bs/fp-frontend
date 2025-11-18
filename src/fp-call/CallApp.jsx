@@ -1,7 +1,14 @@
 import { VideoCalling } from "./components/VideoCalling.jsx";
 import "./CallApp.css";
 
-function CallApp({ userId, peerId, channel, isInitiator, onEndCall }) {
+function CallApp({
+  userId,
+  peerId,
+  channel,
+  isInitiator,
+  onEndCall,
+  isAudioCall = false,
+}) {
   return (
     <div>
       <VideoCalling
@@ -10,6 +17,7 @@ function CallApp({ userId, peerId, channel, isInitiator, onEndCall }) {
         channel={channel}
         isInitiator={isInitiator}
         onEndCall={onEndCall}
+        isAudioCall={isAudioCall}
       />
     </div>
   );
