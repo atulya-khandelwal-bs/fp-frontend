@@ -264,6 +264,7 @@ export default function ChatInterface({
     });
 
     const filteredLogs = logEntries.filter((entry) => {
+      console.log("entry", entry);
       const { log } = entry;
       // Filter messages for the current conversation
       if (log.includes("→")) {
@@ -393,6 +394,13 @@ export default function ChatInterface({
                     messageContent = "Meal plan updated";
                     break;
                   case "call":
+                    const isLatestCall =
+                      logIndex ===
+                      Math.max(...filteredLogs.map((f) => f.logIndex));
+
+                    if (!isLatestCall) {
+                      return null;
+                    }
                     // Only show call messages if:
                     // It's an end action with duration > 0 (both users connected)
                     // Hide initiate messages - they will only appear after call ends with both users
@@ -453,8 +461,28 @@ export default function ChatInterface({
             return null;
           }
 
+          const generatedId = `outgoing-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
+
+          // Console log for video call message ID from logs
+          if (messageType === "call") {
+            console.log(
+              "📞 [VIDEO CALL - LOGS] Generated ID for outgoing call message:",
+              {
+                id: generatedId,
+                messageType: "call",
+                callType: callType,
+                callDurationSeconds: callDurationSeconds,
+                channel: callChannel,
+                peerId: peerId,
+                logHash: logHash,
+                logIndex: logIndex,
+                uniqueTimestamp: uniqueTimestamp,
+              }
+            );
+          }
+
           return {
-            id: `outgoing-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
+            id: generatedId, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
             sender: "You",
             content: messageContent,
             imageData,
@@ -585,6 +613,13 @@ export default function ChatInterface({
                     messageContent = "Meal plan updated";
                     break;
                   case "call":
+                    const isLatestCall =
+                      logIndex ===
+                      Math.max(...filteredLogs.map((f) => f.logIndex));
+
+                    if (!isLatestCall) {
+                      return null;
+                    }
                     // Only show call messages if:
                     // It's an end action with duration > 0 (both users connected)
                     // Hide initiate messages - they will only appear after call ends with both users
@@ -645,8 +680,28 @@ export default function ChatInterface({
             return null;
           }
 
+          const generatedId = `incoming-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
+
+          // Console log for video call message ID from logs
+          if (messageType === "call") {
+            console.log(
+              "📞 [VIDEO CALL - LOGS] Generated ID for incoming call message:",
+              {
+                id: generatedId,
+                messageType: "call",
+                callType: callType,
+                callDurationSeconds: callDurationSeconds,
+                channel: callChannel,
+                peerId: peerId,
+                logHash: logHash,
+                logIndex: logIndex,
+                uniqueTimestamp: uniqueTimestamp,
+              }
+            );
+          }
+
           return {
-            id: `incoming-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
+            id: generatedId, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
             sender,
             content: messageContent,
             imageData,
@@ -751,6 +806,8 @@ export default function ChatInterface({
               new Date(msg.createdAt).getTime() / 2000
             );
             customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
+
+            console.log("customKey for call: ", customKey);
           } else if (msg.messageType === "products" && msg.products) {
             // For products, use the first product ID
             customKey = msg.products[0]?.id || "";
@@ -2026,6 +2083,23 @@ export default function ChatInterface({
             return null;
           }
 
+          // Console log for video call message ID from Agora/formatMessage
+          console.log(
+            "📞 [VIDEO CALL - AGORA] ID for call message from formatMessage:",
+            {
+              id: baseMessage.id,
+              originalMsgId: msg.id,
+              messageType: "call",
+              callType: customData.callType || "video",
+              callAction: customData.action,
+              callDurationSeconds: customData.duration || null,
+              channel: customData.channel,
+              from: msg.from,
+              to: msg.to || peerId,
+              createdAt: baseMessage.createdAt,
+            }
+          );
+
           return {
             ...baseMessage,
             content,
@@ -2174,8 +2248,33 @@ export default function ChatInterface({
       bodyContent = String(bodyContent);
     }
 
+    const apiMessageId =
+      apiMsg.message_id || `api-${Date.now()}-${Math.random()}`;
+
+    // Console log for video call message ID from API
+    if (
+      isCustomMessage &&
+      bodyObj &&
+      typeof bodyObj === "object" &&
+      bodyObj.type === "call"
+    ) {
+      console.log("📞 [VIDEO CALL - API] ID for call message from API:", {
+        id: apiMessageId,
+        message_id: apiMsg.message_id,
+        messageType: "call",
+        callType: bodyObj.callType || "video",
+        callAction: bodyObj.action,
+        callDurationSeconds: bodyObj.duration || null,
+        channel: bodyObj.channel,
+        from_user: apiMsg.from_user,
+        to_user: apiMsg.to_user,
+        created_at: apiMsg.created_at,
+        created_at_ms: apiMsg.created_at_ms,
+      });
+    }
+
     return {
-      id: apiMsg.message_id || `api-${Date.now()}-${Math.random()}`,
+      id: apiMessageId,
       from: String(apiMsg.from_user || ""),
       to: String(apiMsg.to_user || ""),
       time:
