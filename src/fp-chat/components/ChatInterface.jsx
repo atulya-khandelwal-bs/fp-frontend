@@ -264,7 +264,6 @@ export default function ChatInterface({
     });
 
     const filteredLogs = logEntries.filter((entry) => {
-      console.log("entry", entry);
       const { log } = entry;
       // Filter messages for the current conversation
       if (log.includes("→")) {
@@ -336,8 +335,15 @@ export default function ChatInterface({
             // Try backend JSON payloads → else system → else text
             try {
               const obj = JSON.parse(content);
+
               if (obj && typeof obj === "object" && obj.type) {
                 const t = String(obj.type).toLowerCase();
+                // skip system messages coming from logs to avoid duplicates
+                // ---- IGNORE HEALTH COACH CHANGED MESSAGES ----
+                if (t === "mealPlanUpdate" || t === "healthCoachChanged") {
+                  return null; // <-- This ensures UI never displays it
+                }
+
                 switch (t) {
                   case "text":
                     messageType = "text";
@@ -464,22 +470,6 @@ export default function ChatInterface({
           const generatedId = `outgoing-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
 
           // Console log for video call message ID from logs
-          if (messageType === "call") {
-            console.log(
-              "📞 [VIDEO CALL - LOGS] Generated ID for outgoing call message:",
-              {
-                id: generatedId,
-                messageType: "call",
-                callType: callType,
-                callDurationSeconds: callDurationSeconds,
-                channel: callChannel,
-                peerId: peerId,
-                logHash: logHash,
-                logIndex: logIndex,
-                uniqueTimestamp: uniqueTimestamp,
-              }
-            );
-          }
 
           return {
             id: generatedId, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
@@ -556,8 +546,15 @@ export default function ChatInterface({
             // Try backend JSON payloads → else system → else text
             try {
               const obj = JSON.parse(content);
+
               if (obj && typeof obj === "object" && obj.type) {
                 const t = String(obj.type).toLowerCase();
+                // skip system messages coming from logs to avoid duplicates
+                // ---- IGNORE HEALTH COACH CHANGED MESSAGES ----
+                if (t === "mealPlanUpdate" || t === "healthCoachChanged") {
+                  return null; // <-- This ensures UI never displays it
+                }
+
                 switch (t) {
                   case "text":
                     messageType = "text";
@@ -594,23 +591,6 @@ export default function ChatInterface({
                     messageType = "products";
                     products = Array.isArray(obj.products) ? obj.products : [];
                     messageContent = "Products";
-                    break;
-                  case "new_nutritionist":
-                  case "new_nutrionist":
-                    messageType = "system";
-                    system = {
-                      kind: "new_nutritionist",
-                      id: obj.id || "",
-                      name: obj.name || "",
-                      title: obj.title || "",
-                      profilePhoto: obj.profilePhoto || "",
-                    };
-                    messageContent = "New nutritionist assigned";
-                    break;
-                  case "meal_plan_updated":
-                    messageType = "system";
-                    system = { kind: "meal_plan_updated" };
-                    messageContent = "Meal plan updated";
                     break;
                   case "call":
                     const isLatestCall =
@@ -683,22 +663,6 @@ export default function ChatInterface({
           const generatedId = `incoming-${peerId}-${logHash}-${logIndex}-${uniqueTimestamp}`;
 
           // Console log for video call message ID from logs
-          if (messageType === "call") {
-            console.log(
-              "📞 [VIDEO CALL - LOGS] Generated ID for incoming call message:",
-              {
-                id: generatedId,
-                messageType: "call",
-                callType: callType,
-                callDurationSeconds: callDurationSeconds,
-                channel: callChannel,
-                peerId: peerId,
-                logHash: logHash,
-                logIndex: logIndex,
-                uniqueTimestamp: uniqueTimestamp,
-              }
-            );
-          }
 
           return {
             id: generatedId, // Include logIndex and timestamp to ensure unique IDs for consecutive duplicate messages
@@ -735,7 +699,6 @@ export default function ChatInterface({
 
     // Only show messages for the current conversation (peerId)
     setMessages((prev) => {
-      // console.log("prev", prev);
       // If peerId changed, reset messages for the new conversation
 
       const currentPeerMessages = prev.filter((msg) => msg.peerId === peerId);
@@ -806,8 +769,6 @@ export default function ChatInterface({
               new Date(msg.createdAt).getTime() / 2000
             );
             customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
-
-            console.log("customKey for call: ", customKey);
           } else if (msg.messageType === "products" && msg.products) {
             // For products, use the first product ID
             customKey = msg.products[0]?.id || "";
@@ -857,6 +818,16 @@ export default function ChatInterface({
               return `${msg.messageType}-${customKey}-${msg.sender}`;
             }
             return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
+          }
+
+          // For system messages (meal_plan_updated, new_nutritionist, etc.), use timestamp to allow duplicates
+          if (msg.messageType === "system" && msg.system) {
+            // Use a more granular timestamp (1-second window) to allow multiple system messages
+            const timestampSeconds = Math.floor(
+              new Date(msg.createdAt).getTime() / 1000
+            );
+            const systemKind = msg.system.kind || "";
+            return `${msg.messageType}-${systemKind}-${msg.sender}-${timestampSeconds}`;
           }
         }
 
@@ -979,11 +950,6 @@ export default function ChatInterface({
   // Sync chatClient prop to ref
   useEffect(() => {
     chatClientRef.current = chatClient;
-    console.log(
-      "chatClientRef updated:",
-      !!chatClient,
-      chatClient?.isOpened?.()
-    );
   }, [chatClient]);
 
   // Fetch last 20 messages whenever peer changes (only once per peer)
@@ -1026,8 +992,6 @@ export default function ChatInterface({
   const currentConversationMessages = messages.filter(
     (msg) => msg.peerId === peerId
   );
-
-  // console.log("currentConversationMessages", currentConversationMessages);
 
   // Auto-scroll when messages change
   useEffect(() => {
@@ -1312,7 +1276,6 @@ export default function ChatInterface({
       // Add event listener for emoji selection
       // emoji-picker-element fires different events, try multiple
       handleEmojiSelect = (event) => {
-        console.log("Emoji event:", event); // Debug log
         // Try different event structures
         const emoji =
           event.detail?.unicode ||
@@ -1704,12 +1667,6 @@ export default function ChatInterface({
           ? Math.floor((Date.now() - recordingStartTimeRef.current) / 1000)
           : recordingDurationRef.current || recordingDuration;
 
-        console.log("Recording stopped. Duration:", {
-          fromState: recordingDuration,
-          fromRef: recordingDurationRef.current,
-          calculated: actualDuration,
-        });
-
         // Only send if shouldSendRecordingRef is true (not cancelled)
         if (
           shouldSendRecordingRef.current &&
@@ -1847,12 +1804,6 @@ export default function ChatInterface({
         duration: durationToUse, // Duration in seconds (will be converted to ms in App.jsx)
       };
 
-      console.log(
-        "Sending audio message with duration:",
-        durationToUse,
-        "seconds"
-      );
-
       // Set message and send
       setMessage(JSON.stringify(payload));
 
@@ -1872,7 +1823,6 @@ export default function ChatInterface({
   // Image viewer helpers
   const openImageViewer = (url, alt) => {
     if (!url) return;
-    console.log("Opening image viewer:", url); // Debug log
     setImageViewerUrl(url);
     setImageViewerAlt(alt || "Image");
     // Optional: lock background scroll if desired
@@ -2030,6 +1980,19 @@ export default function ChatInterface({
 
       if (customData && customData.type) {
         const type = String(customData.type).toLowerCase();
+
+        // Filter out unwanted message types (healthCoachChanged, mealPlanUpdate)
+        if (
+          type === "healthcoachchanged" ||
+          type === "mealplanupdate" ||
+          type === "healthcoachchangedate" ||
+          type === "mealplanupdate" ||
+          type === "healthCoachChanged" ||
+          type === "mealPlanUpdate"
+        ) {
+          return null; // Don't show these messages on UI
+        }
+
         const content = JSON.stringify(customData);
 
         if (type === "image") {
@@ -2084,21 +2047,6 @@ export default function ChatInterface({
           }
 
           // Console log for video call message ID from Agora/formatMessage
-          console.log(
-            "📞 [VIDEO CALL - AGORA] ID for call message from formatMessage:",
-            {
-              id: baseMessage.id,
-              originalMsgId: msg.id,
-              messageType: "call",
-              callType: customData.callType || "video",
-              callAction: customData.action,
-              callDurationSeconds: customData.duration || null,
-              channel: customData.channel,
-              from: msg.from,
-              to: msg.to || peerId,
-              createdAt: baseMessage.createdAt,
-            }
-          );
 
           return {
             ...baseMessage,
@@ -2121,7 +2069,7 @@ export default function ChatInterface({
         } else if (type === "meal_plan_updated") {
           return {
             ...baseMessage,
-            content,
+            content: "Meal plan updated",
             messageType: "system",
             system: { kind: "meal_plan_updated" },
           };
@@ -2176,6 +2124,35 @@ export default function ChatInterface({
       if (parsed && typeof parsed === "object" && parsed.type) {
         const type = String(parsed.type).toLowerCase();
         if (type === "products") {
+          // ❌ Skip empty product messages completely
+          if (
+            !parsed.products ||
+            !Array.isArray(parsed.products) ||
+            parsed.products.length === 0
+          ) {
+            return null;
+          }
+
+          return {
+            ...baseMessage,
+            content: textContent,
+            messageType: "products",
+            products: parsed.products,
+          };
+        }
+
+        // Filter out unwanted message types (healthCoachChanged, mealPlanUpdate)
+        if (
+          type === "healthcoachchanged" ||
+          type === "mealplanupdate" ||
+          type === "mealplanupdated" ||
+          type === "healthCoachChanged" ||
+          type === "mealPlanUpdate"
+        ) {
+          return null; // Don't show these messages on UI
+        }
+
+        if (type === "products") {
           return {
             ...baseMessage,
             content: textContent,
@@ -2185,7 +2162,7 @@ export default function ChatInterface({
         } else if (type === "meal_plan_updated") {
           return {
             ...baseMessage,
-            content: textContent,
+            content: "Meal plan updated",
             messageType: "system",
             system: { kind: "meal_plan_updated" },
           };
@@ -2223,7 +2200,54 @@ export default function ChatInterface({
     // formatMessage expects: { id, from, to, time, type, msg, msgContent, data, body, chat_type, conversation_id, message_id, ... }
 
     // Check if body has a type field to determine if it's a custom message
-    const bodyObj = apiMsg.body;
+    let bodyObj = apiMsg.body;
+
+    // Handle case where body is a string (parse it first)
+    if (typeof bodyObj === "string") {
+      try {
+        bodyObj = JSON.parse(bodyObj);
+      } catch {
+        // If parsing fails, treat as plain text
+        bodyObj = bodyObj;
+      }
+    }
+
+    // 🟢 FIX: Handle nested payloads such as {"data":"{...}","type":"mealPlanUpdate"}
+    if (
+      bodyObj &&
+      typeof bodyObj === "object" &&
+      bodyObj.data &&
+      typeof bodyObj.data === "string"
+    ) {
+      try {
+        const nested = JSON.parse(bodyObj.data);
+        if (nested && typeof nested === "object") {
+          // Use the nested object, but preserve the outer type if nested doesn't have one
+          bodyObj = {
+            ...nested,
+            type: nested.type || bodyObj.type, // Prefer nested type, fallback to outer type
+          };
+        }
+      } catch {
+        // If parsing fails, keep bodyObj as is
+      }
+    }
+
+    // Filter out unwanted message types (healthCoachChanged, mealPlanUpdate)
+    if (bodyObj && typeof bodyObj === "object" && bodyObj.type) {
+      const type = String(bodyObj.type).toLowerCase();
+      if (
+        type === "healthcoachchanged" ||
+        type === "mealplanupdate" ||
+        type === "mealplanupdated" ||
+        type === "healthCoachChanged" ||
+        type === "mealPlanUpdate"
+      ) {
+        // Return null to filter out these messages - they should not appear on UI
+        return null;
+      }
+    }
+
     const isTextMessage =
       bodyObj && typeof bodyObj === "object" && bodyObj.type === "text";
     const isCustomMessage =
@@ -2250,28 +2274,6 @@ export default function ChatInterface({
 
     const apiMessageId =
       apiMsg.message_id || `api-${Date.now()}-${Math.random()}`;
-
-    // Console log for video call message ID from API
-    if (
-      isCustomMessage &&
-      bodyObj &&
-      typeof bodyObj === "object" &&
-      bodyObj.type === "call"
-    ) {
-      console.log("📞 [VIDEO CALL - API] ID for call message from API:", {
-        id: apiMessageId,
-        message_id: apiMsg.message_id,
-        messageType: "call",
-        callType: bodyObj.callType || "video",
-        callAction: bodyObj.action,
-        callDurationSeconds: bodyObj.duration || null,
-        channel: bodyObj.channel,
-        from_user: apiMsg.from_user,
-        to_user: apiMsg.to_user,
-        created_at: apiMsg.created_at,
-        created_at_ms: apiMsg.created_at_ms,
-      });
-    }
 
     return {
       id: apiMessageId,
@@ -2310,8 +2312,6 @@ export default function ChatInterface({
     }
 
     try {
-      console.log("fetching initial messages from API");
-
       // Build URL with query parameters
       // Format conversationId as "user_{peerId}" as required by the API
       const conversationId = peerId.startsWith("user_")
@@ -2337,18 +2337,15 @@ export default function ChatInterface({
         setHasMore(false);
       }
 
-      console.log("API response:", res);
-      console.log("messages count:", res?.messages?.length);
-
       const oldMessages = res?.messages || [];
 
       // Convert API messages to format expected by formatMessage
-      const convertedMessages = oldMessages.map((msg) =>
-        convertApiMessageToFormat(msg)
-      );
+      const convertedMessages = oldMessages
+        .map((msg) => convertApiMessageToFormat(msg))
+        .filter((msg) => msg !== null); // Filter out null messages (healthCoachChanged, mealPlanUpdate, etc.)
       const formatted = convertedMessages
         .map((msg) => formatMessage(msg))
-        .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages)
+        .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages, etc.)
 
       // Find the most recent message from history to update last message
       if (formatted.length > 0 && onUpdateLastMessageFromHistory) {
@@ -2500,6 +2497,16 @@ export default function ChatInterface({
               }
               return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
             }
+
+            // For system messages (meal_plan_updated, new_nutritionist, etc.), use timestamp to allow duplicates
+            if (msg.messageType === "system" && msg.system) {
+              // Use a more granular timestamp (1-second window) to allow multiple system messages
+              const timestampSeconds = Math.floor(
+                new Date(msg.createdAt).getTime() / 1000
+              );
+              const systemKind = msg.system.kind || "";
+              return `${msg.messageType}-${systemKind}-${msg.sender}-${timestampSeconds}`;
+            }
           }
 
           // Fallback to content-based matching for text and other messages
@@ -2530,13 +2537,6 @@ export default function ChatInterface({
               // Mark this server message as matched
               matchedServerMessageIds.add(serverMsg.id);
               // Use server message (has correct timestamp) instead of log message
-              console.log("Replacing log message with server message:", {
-                logId: logMsg.id,
-                serverId: serverMsg.id,
-                logTime: logMsg.createdAt,
-                serverTime: serverMsg.createdAt,
-                messageType: logMsg.messageType,
-              });
               return serverMsg;
             }
           }
@@ -2612,8 +2612,6 @@ export default function ChatInterface({
       const prevScrollHeight = chatArea?.scrollHeight || 0;
       const prevScrollTop = chatArea?.scrollTop || 0;
 
-      console.log("fetchMoreMessages called with:", { cursor, peerId });
-
       // Build URL with query parameters
       // Format conversationId as "user_{peerId}" as required by the API
       const conversationId = peerId.startsWith("user_")
@@ -2652,12 +2650,12 @@ export default function ChatInterface({
       }
 
       // Convert API messages to format expected by formatMessage
-      const convertedMessages = newMessages.map((msg) =>
-        convertApiMessageToFormat(msg)
-      );
+      const convertedMessages = newMessages
+        .map((msg) => convertApiMessageToFormat(msg))
+        .filter((msg) => msg !== null); // Filter out null messages (healthCoachChanged, mealPlanUpdate, etc.)
       const formatted = convertedMessages
         .map((msg) => formatMessage(msg))
-        .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages)
+        .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages, etc.)
 
       // 🟡 Prevent scroll-to-bottom behavior
       isLoadingHistoryRef.current = true;
@@ -2685,6 +2683,14 @@ export default function ChatInterface({
           );
 
           if (msg.messageType && msg.messageType !== "text") {
+            console.log("🍽️ [HISTORY - createMatchKey] Message:", {
+              messageType: msg.messageType,
+              content: msg.content,
+              createdAt: msg.createdAt,
+              id: msg.id,
+              sender: msg.sender,
+              peerId: msg.peerId,
+            });
             let customKey = "";
 
             // Try to extract from message fields first
@@ -2778,6 +2784,16 @@ export default function ChatInterface({
                 return `${msg.messageType}-${customKey}-${msg.sender}`;
               }
               return `${msg.messageType}-${customKey}-${msg.sender}-${timeWindow}`;
+            }
+
+            // For system messages (meal_plan_updated, new_nutritionist, etc.), use timestamp to allow duplicates
+            if (msg.messageType === "system" && msg.system) {
+              // Use a more granular timestamp (1-second window) to allow multiple system messages
+              const timestampSeconds = Math.floor(
+                new Date(msg.createdAt).getTime() / 1000
+              );
+              const systemKind = msg.system.kind || "";
+              return `${msg.messageType}-${systemKind}-${msg.sender}-${timestampSeconds}`;
             }
           }
 
