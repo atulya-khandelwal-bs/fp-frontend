@@ -66,15 +66,33 @@ export function buildCustomExts(payload) {
       };
 
     case "call":
-      return {
+      // Ensure duration is always included as a number
+      const callDuration =
+        payload.duration !== undefined && payload.duration !== null
+          ? Number(payload.duration)
+          : 0;
+
+      const callExts = {
         type: "call",
         callType: payload.callType || "video", // "voice" or "video"
         channel: payload.channel || "",
         from: payload.from || "",
         to: payload.to || "",
         action: payload.action || "initiate", // "initiate", "accept", "reject", "end"
-        duration: payload.duration !== undefined ? payload.duration : 0, // in seconds (0 for initiate, actual duration when call ends)
+        duration: callDuration.toString(), // in seconds (0 for initiate, actual duration when call ends)
       };
+
+      // Log for debugging call end messages
+      if (payload.action === "end") {
+        console.log("📞 buildCustomExts - Call end message:", {
+          originalPayload: payload,
+          builtExts: callExts,
+          durationValue: callDuration,
+          durationType: typeof callDuration,
+        });
+      }
+
+      return callExts;
 
     default:
       // For unknown types, return the payload as-is

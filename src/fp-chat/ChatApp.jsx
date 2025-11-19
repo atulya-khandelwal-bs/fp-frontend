@@ -53,6 +53,8 @@ function ChatApp() {
 
   // 🔹 Global message ID tracker to prevent duplicates
   const isSendingRef = useRef(false);
+  // 🔹 Track if call end message has been sent to prevent duplicates
+  const callEndMessageSentRef = useRef(false);
 
   const addLog = (log) =>
     setLogs((prev) => {
@@ -494,48 +496,36 @@ function ChatApp() {
     // USER_ID is the user's ID (peerId), not the coach's ID
     const channel = `fp_rtc_call_user_${peerId}`;
 
-    // Send a custom message to notify the other user
-    const callMessage = JSON.stringify({
-      type: "call",
-      callType: callType, // "video" or "audio"
-      channel: channel,
-      from: userId,
-      to: peerId,
-      action: "initiate",
-      duration: 0, // Duration in seconds (0 for initiate, actual duration when call ends)
+    // Reset call end message sent flag for new call
+    callEndMessageSentRef.current = false;
+
+    // DO NOT send initiate message - only send end message with duration
+    // Removed: await handleSendMessage(callMessage);
+
+    // Ensure message is cleared
+    setMessage("");
+
+    // Set active call state
+    setActiveCall({
+      userId,
+      peerId,
+      channel,
+      isInitiator: true,
+      callType: callType,
+      localUserName: userId, // You can get actual name from user profile if available
+      peerName: selectedContact?.name || peerId,
+      peerAvatar: selectedContact?.avatar,
     });
 
-    try {
-      // Send call notification message
-      await handleSendMessage(callMessage);
-
-      // Ensure message is cleared after sending call message
-      setMessage("");
-
-      // Set active call state
-      setActiveCall({
-        userId,
-        peerId,
-        channel,
-        isInitiator: true,
-        callType: callType,
-        localUserName: userId, // You can get actual name from user profile if available
-        peerName: selectedContact?.name || peerId,
-        peerAvatar: selectedContact?.avatar,
-      });
-
-      addLog(`Initiating ${callType} call with ${peerId}`);
-    } catch (error) {
-      console.error("Error initiating call:", error);
-      addLog(`Failed to initiate call: ${error.message}`);
-      // Clear message even on error
-      setMessage("");
-    }
+    addLog(`Initiating ${callType} call with ${peerId}`);
   };
 
   // Handle accept call
   const handleAcceptCall = () => {
     if (!incomingCall) return;
+
+    // Reset call end message sent flag for accepted call
+    callEndMessageSentRef.current = false;
 
     // Find the contact from conversations
     const contact = conversations.find((c) => c.id === incomingCall.from);
@@ -560,63 +550,83 @@ function ChatApp() {
 
   // Handle end call
   const handleEndCall = async (callInfo = null) => {
-    // Only send call end message if BOTH users were connected (nutritionist AND client)
-    // If only one user (nutritionist) was in the call, do NOT send the message
-    if (
-      callInfo &&
-      callInfo.bothUsersConnected === true &&
-      callInfo.duration > 0 &&
-      activeCall
-    ) {
-      try {
-        // Send call end message with duration
-        const callEndPayload = {
-          type: "call",
-          callType: activeCall.callType || "video",
-          channel: activeCall.channel,
-          from: userId,
-          to: activeCall.peerId,
-          action: "end",
-          duration: callInfo.duration, // Duration in seconds
-        };
+    // Prevent duplicate call end messages
+    if (callEndMessageSentRef.current) {
+      console.log("📞 Call End Message - Already sent, skipping duplicate");
+      // Clear call state even if message was already sent
+      setActiveCall(null);
+      setIncomingCall(null);
+      setMessage("");
+      return;
+    }
 
-        const callEndMessage = JSON.stringify(callEndPayload);
-
-        // Console log the payload being sent to backend
-        console.log(
-          "📞 Call End Message - Sending to backend (both users connected):",
-          callEndPayload
-        );
-        console.log("📞 Call End Message - JSON string:", callEndMessage);
-
-        // Send the call end message
-        await handleSendMessage(callEndMessage);
-
-        addLog(`Call ended. Duration: ${callInfo.duration}s`);
-      } catch (error) {
-        console.error("Error sending call end message:", error);
-        addLog(`Failed to send call end message: ${error.message}`);
-      }
-    } else {
-      // Log when message is NOT being sent (for debugging)
-      console.log("📞 Call End Message - NOT sending (conditions not met):", {
+    if (!activeCall || !callInfo) {
+      console.log("📞 Call End Message - NOT sending (missing data):", {
         hasCallInfo: !!callInfo,
-        bothUsersConnected: callInfo?.bothUsersConnected,
-        duration: callInfo?.duration,
         hasActiveCall: !!activeCall,
-        reason: !callInfo
-          ? "No call info"
-          : callInfo.bothUsersConnected !== true
-          ? "Both users not connected (only nutritionist or only client)"
-          : callInfo.duration <= 0
-          ? "Duration is 0 or negative"
-          : !activeCall
-          ? "No active call"
-          : "Unknown reason",
+      });
+      setActiveCall(null);
+      setIncomingCall(null);
+      setMessage("");
+      return;
+    }
+
+    const bothUsersConnected = callInfo.bothUsersConnected === true;
+
+    // Calculate duration - use provided duration or calculate from timestamps
+    let duration = callInfo.duration || 0;
+    if (duration <= 0 && callInfo.callStartTime && callInfo.callEndTime) {
+      duration = Math.floor(
+        (callInfo.callEndTime - callInfo.callStartTime) / 1000
+      );
+    }
+
+    // Ensure duration is at least 0 (not negative)
+    duration = Math.max(0, duration);
+
+    if (!bothUsersConnected || duration <= 0) {
+      console.log("📞 Call End Message - NOT sending (conditions not met):", {
+        bothUsersConnected,
+        duration,
       });
       addLog(
-        `Call ended but message not sent (only one user in call or duration is 0)`
+        "Call ended without other user joining. Not sending call summary to backend."
       );
+      setActiveCall(null);
+      setIncomingCall(null);
+      setMessage("");
+      return;
+    }
+
+    try {
+      // Send call end message with duration
+      const callEndPayload = {
+        type: "call",
+        callType: activeCall.callType || "video",
+        channel: activeCall.channel,
+        from: userId,
+        to: activeCall.peerId,
+        action: "end",
+        duration: duration, // Duration in seconds
+      };
+
+      const callEndMessage = JSON.stringify(callEndPayload);
+
+      // Console log the payload being sent
+      console.log("LOGS ::: Agora Custom Data Body :::", callEndPayload);
+
+      // Mark as sent before sending to prevent duplicates
+      callEndMessageSentRef.current = true;
+
+      // Send the call end message
+      await handleSendMessage(callEndMessage);
+
+      addLog(`Call ended. Duration: ${duration}s`);
+    } catch (error) {
+      console.error("Error sending call end message:", error);
+      addLog(`Failed to send call end message: ${error.message}`);
+      // Reset flag on error so it can be retried if needed
+      callEndMessageSentRef.current = false;
     }
 
     // Clear call state
