@@ -254,6 +254,7 @@ export default function ChatTab({
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            textAlign: "left",
                           }}
                         >
                           {msg.system.title || ""}

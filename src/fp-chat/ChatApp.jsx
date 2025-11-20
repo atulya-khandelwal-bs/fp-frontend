@@ -503,21 +503,21 @@ function ChatApp() {
     // Removed: await handleSendMessage(callMessage);
 
     // Ensure message is cleared
-    setMessage("");
+      setMessage("");
 
-    // Set active call state
-    setActiveCall({
-      userId,
-      peerId,
-      channel,
-      isInitiator: true,
-      callType: callType,
-      localUserName: userId, // You can get actual name from user profile if available
-      peerName: selectedContact?.name || peerId,
-      peerAvatar: selectedContact?.avatar,
-    });
+      // Set active call state
+      setActiveCall({
+        userId,
+        peerId,
+        channel,
+        isInitiator: true,
+        callType: callType,
+        localUserName: userId, // You can get actual name from user profile if available
+        peerName: selectedContact?.name || peerId,
+        peerAvatar: selectedContact?.avatar,
+      });
 
-    addLog(`Initiating ${callType} call with ${peerId}`);
+      addLog(`Initiating ${callType} call with ${peerId}`);
   };
 
   // Handle accept call
@@ -598,19 +598,19 @@ function ChatApp() {
       return;
     }
 
-    try {
-      // Send call end message with duration
-      const callEndPayload = {
-        type: "call",
-        callType: activeCall.callType || "video",
-        channel: activeCall.channel,
-        from: userId,
-        to: activeCall.peerId,
-        action: "end",
+      try {
+        // Send call end message with duration
+        const callEndPayload = {
+          type: "call",
+          callType: activeCall.callType || "video",
+          channel: activeCall.channel,
+          from: userId,
+          to: activeCall.peerId,
+          action: "end",
         duration: duration, // Duration in seconds
-      };
+        };
 
-      const callEndMessage = JSON.stringify(callEndPayload);
+        const callEndMessage = JSON.stringify(callEndPayload);
 
       // Console log the payload being sent
       console.log("LOGS ::: Agora Custom Data Body :::", callEndPayload);
@@ -618,13 +618,13 @@ function ChatApp() {
       // Mark as sent before sending to prevent duplicates
       callEndMessageSentRef.current = true;
 
-      // Send the call end message
-      await handleSendMessage(callEndMessage);
+        // Send the call end message
+        await handleSendMessage(callEndMessage);
 
       addLog(`Call ended. Duration: ${duration}s`);
-    } catch (error) {
-      console.error("Error sending call end message:", error);
-      addLog(`Failed to send call end message: ${error.message}`);
+      } catch (error) {
+        console.error("Error sending call end message:", error);
+        addLog(`Failed to send call end message: ${error.message}`);
       // Reset flag on error so it can be retried if needed
       callEndMessageSentRef.current = false;
     }

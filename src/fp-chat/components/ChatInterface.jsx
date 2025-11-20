@@ -799,11 +799,21 @@ export default function ChatInterface({
                     new Date(msg.createdAt).getTime() / 2000
                   );
                   customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
-                } else if (
-                  msg.messageType === "products" &&
-                  contentObj.products
-                ) {
-                  customKey = contentObj.products[0]?.id || "";
+                } else if (msg.messageType === "products") {
+                  // Handle both array and stringified products formats
+                  let productsArray = [];
+                  if (Array.isArray(contentObj.products)) {
+                    productsArray = contentObj.products;
+                  } else if (typeof contentObj.products === "string") {
+                    try {
+                      const parsed = JSON.parse(contentObj.products);
+                      productsArray = Array.isArray(parsed) ? parsed : [];
+                    } catch {
+                      productsArray = [];
+                    }
+                  }
+                  // Use the first product ID as the key
+                  customKey = productsArray[0]?.id || "";
                 }
               }
             } catch {
@@ -2058,13 +2068,29 @@ export default function ChatInterface({
             callDurationSeconds: customData.duration || null,
           };
         } else if (type === "products") {
+          // Handle case where products might be a stringified JSON string
+          let productsArray = [];
+          if (Array.isArray(customData.products)) {
+            productsArray = customData.products;
+          } else if (typeof customData.products === "string") {
+            try {
+              const parsed = JSON.parse(customData.products);
+              productsArray = Array.isArray(parsed) ? parsed : [];
+            } catch {
+              productsArray = [];
+            }
+          }
+
+          // Filter out products messages with 0 products
+          if (productsArray.length === 0) {
+            return null; // Don't show products messages with no products
+          }
+
           return {
             ...baseMessage,
             content,
             messageType: "products",
-            products: Array.isArray(customData.products)
-              ? customData.products
-              : [],
+            products: productsArray,
           };
         } else if (type === "meal_plan_updated") {
           return {
@@ -2124,20 +2150,31 @@ export default function ChatInterface({
       if (parsed && typeof parsed === "object" && parsed.type) {
         const type = String(parsed.type).toLowerCase();
         if (type === "products") {
-          // ❌ Skip empty product messages completely
-          if (
-            !parsed.products ||
-            !Array.isArray(parsed.products) ||
-            parsed.products.length === 0
-          ) {
-            return null;
+          // Handle case where products might be a stringified JSON string
+          let productsArray = [];
+          if (Array.isArray(parsed.products)) {
+            productsArray = parsed.products;
+          } else if (typeof parsed.products === "string") {
+            try {
+              const parsedProducts = JSON.parse(parsed.products);
+              productsArray = Array.isArray(parsedProducts)
+                ? parsedProducts
+                : [];
+            } catch {
+              productsArray = [];
+            }
+          }
+
+          // Filter out products messages with 0 products
+          if (productsArray.length === 0) {
+            return null; // Don't show products messages with no products
           }
 
           return {
             ...baseMessage,
             content: textContent,
             messageType: "products",
-            products: parsed.products,
+            products: productsArray,
           };
         }
 
@@ -2248,6 +2285,26 @@ export default function ChatInterface({
       }
     }
 
+    // 🟢 NORMALIZE products messages: Convert stringified products to array format
+    // This ensures both formats (array and stringified) become the same before formatMessage
+    if (
+      bodyObj &&
+      typeof bodyObj === "object" &&
+      bodyObj.type === "products" &&
+      bodyObj.products
+    ) {
+      if (typeof bodyObj.products === "string") {
+        try {
+          const parsed = JSON.parse(bodyObj.products);
+          if (Array.isArray(parsed)) {
+            bodyObj.products = parsed; // Replace string with array
+          }
+        } catch {
+          // If parsing fails, keep as is
+        }
+      }
+    }
+
     const isTextMessage =
       bodyObj && typeof bodyObj === "object" && bodyObj.type === "text";
     const isCustomMessage =
@@ -2347,10 +2404,41 @@ export default function ChatInterface({
         .map((msg) => formatMessage(msg))
         .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages, etc.)
 
+      // 🟢 DEDUPLICATE products messages: Filter out duplicates based on product IDs
+      // This prevents the same products message from appearing twice (array vs stringified format)
+      const seenProductKeys = new Set();
+      const deduplicatedFormatted = formatted.filter((msg) => {
+        if (msg.messageType === "products" && msg.products) {
+          // Extract first product ID for deduplication key
+          let firstProductId = "";
+          if (Array.isArray(msg.products)) {
+            firstProductId = msg.products[0]?.id || "";
+          } else if (typeof msg.products === "string") {
+            try {
+              const parsed = JSON.parse(msg.products);
+              if (Array.isArray(parsed) && parsed[0]?.id) {
+                firstProductId = parsed[0].id;
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+
+          if (firstProductId) {
+            const key = `products-${firstProductId}-${msg.sender}`;
+            if (seenProductKeys.has(key)) {
+              return false; // Filter out duplicate
+            }
+            seenProductKeys.add(key);
+          }
+        }
+        return true; // Keep all non-products messages and products without ID
+      });
+
       // Find the most recent message from history to update last message
-      if (formatted.length > 0 && onUpdateLastMessageFromHistory) {
+      if (deduplicatedFormatted.length > 0 && onUpdateLastMessageFromHistory) {
         // Sort by timestamp descending to get the most recent
-        const sortedFormatted = [...formatted].sort(
+        const sortedFormatted = [...deduplicatedFormatted].sort(
           (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
         );
         const mostRecentMessage = sortedFormatted[0];
@@ -2369,7 +2457,7 @@ export default function ChatInterface({
         const existingIds = new Set(existingMessages.map((msg) => msg.id));
 
         // Filter out fetched messages that already exist by ID
-        const newFetchedMessages = formatted
+        const newFetchedMessages = deduplicatedFormatted
           .reverse()
           .filter((msg) => !existingIds.has(msg.id));
 
@@ -2447,9 +2535,22 @@ export default function ChatInterface({
                 new Date(msg.createdAt).getTime() / 2000
               );
               customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
-            } else if (msg.messageType === "products" && msg.products) {
-              // For products, use the first product ID
-              customKey = msg.products[0]?.id || "";
+            } else if (msg.messageType === "products") {
+              // For products, extract products array (handle both array and stringified formats)
+
+              let productsArray = [];
+              if (Array.isArray(msg.products)) {
+                productsArray = msg.products;
+              } else if (typeof msg.products === "string") {
+                try {
+                  const parsed = JSON.parse(msg.products);
+                  productsArray = Array.isArray(parsed) ? parsed : [];
+                } catch {
+                  productsArray = [];
+                }
+              }
+              // Use the first product ID as the key
+              customKey = productsArray[0]?.id || "";
             }
 
             // If customKey is still empty, try to extract from content JSON
@@ -2477,11 +2578,21 @@ export default function ChatInterface({
                       new Date(msg.createdAt).getTime() / 2000
                     );
                     customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
-                  } else if (
-                    msg.messageType === "products" &&
-                    contentObj.products
-                  ) {
-                    customKey = contentObj.products[0]?.id || "";
+                  } else if (msg.messageType === "products") {
+                    // Handle both array and stringified products formats
+                    let productsArray = [];
+                    if (Array.isArray(contentObj.products)) {
+                      productsArray = contentObj.products;
+                    } else if (typeof contentObj.products === "string") {
+                      try {
+                        const parsed = JSON.parse(contentObj.products);
+                        productsArray = Array.isArray(parsed) ? parsed : [];
+                      } catch {
+                        productsArray = [];
+                      }
+                    }
+                    // Use the first product ID as the key
+                    customKey = productsArray[0]?.id || "";
                   }
                 }
               } catch {
@@ -2657,6 +2768,37 @@ export default function ChatInterface({
         .map((msg) => formatMessage(msg))
         .filter((msg) => msg !== null); // Filter out null messages (hidden call initiate messages, etc.)
 
+      // 🟢 DEDUPLICATE products messages: Filter out duplicates based on product IDs
+      // This prevents the same products message from appearing twice (array vs stringified format)
+      const seenProductKeys = new Set();
+      const deduplicatedFormatted = formatted.filter((msg) => {
+        if (msg.messageType === "products" && msg.products) {
+          // Extract first product ID for deduplication key
+          let firstProductId = "";
+          if (Array.isArray(msg.products)) {
+            firstProductId = msg.products[0]?.id || "";
+          } else if (typeof msg.products === "string") {
+            try {
+              const parsed = JSON.parse(msg.products);
+              if (Array.isArray(parsed) && parsed[0]?.id) {
+                firstProductId = parsed[0].id;
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+
+          if (firstProductId) {
+            const key = `products-${firstProductId}-${msg.sender}`;
+            if (seenProductKeys.has(key)) {
+              return false; // Filter out duplicate
+            }
+            seenProductKeys.add(key);
+          }
+        }
+        return true; // Keep all non-products messages and products without ID
+      });
+
       // 🟡 Prevent scroll-to-bottom behavior
       isLoadingHistoryRef.current = true;
       skipAutoScrollRef.current = true;
@@ -2683,14 +2825,6 @@ export default function ChatInterface({
           );
 
           if (msg.messageType && msg.messageType !== "text") {
-            console.log("🍽️ [HISTORY - createMatchKey] Message:", {
-              messageType: msg.messageType,
-              content: msg.content,
-              createdAt: msg.createdAt,
-              id: msg.id,
-              sender: msg.sender,
-              peerId: msg.peerId,
-            });
             let customKey = "";
 
             // Try to extract from message fields first
@@ -2765,11 +2899,21 @@ export default function ChatInterface({
                       new Date(msg.createdAt).getTime() / 2000
                     );
                     customKey = `${callType}-${callChannel}-${callAction}-${callDuration}-${timestampSeconds}`;
-                  } else if (
-                    msg.messageType === "products" &&
-                    contentObj.products
-                  ) {
-                    customKey = contentObj.products[0]?.id || "";
+                  } else if (msg.messageType === "products") {
+                    // Handle both array and stringified products formats
+                    let productsArray = [];
+                    if (Array.isArray(contentObj.products)) {
+                      productsArray = contentObj.products;
+                    } else if (typeof contentObj.products === "string") {
+                      try {
+                        const parsed = JSON.parse(contentObj.products);
+                        productsArray = Array.isArray(parsed) ? parsed : [];
+                      } catch {
+                        productsArray = [];
+                      }
+                    }
+                    // Use the first product ID as the key
+                    customKey = productsArray[0]?.id || "";
                   }
                 }
               } catch {
@@ -2809,7 +2953,7 @@ export default function ChatInterface({
         });
 
         // Filter by both ID and content/key matching
-        const unique = formatted.reverse().filter((m) => {
+        const unique = deduplicatedFormatted.reverse().filter((m) => {
           if (existingIds.has(m.id)) {
             return false;
           }
